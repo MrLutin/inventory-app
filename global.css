@@ -1,0 +1,22 @@
+@import 'tailwindcss';
+@import 'uniwind';
+
+@layer theme {
+  :root {
+    @variant dark {
+      --color-background: #111;
+      --color-foreground: #fff;
+      --color-muted: #ededed;
+      --color-border: #ededed;
+      --color-accent: #7e22ce;
+    }
+
+    @variant light {
+      --color-background: #fff;
+      --color-foreground: #111;
+      --color-muted: #ededed;
+      --color-border: #ededed;
+      --color-accent: #7e22ce;
+    }
+  }
+}
