@@ -1,62 +1,55 @@
 {
   "expo": {
-    "name": "NKZW App",
-    "slug": "nkzw-app",
+    "name": "inventory",
+    "slug": "inventory",
     "version": "1.0.0",
-    "scheme": "nkzw-app",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "inventory",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
     "web": {
-      "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
       "expo-router",
       [
-        "expo-dev-client",
+        "expo-splash-screen",
         {
-          "launchMode": "most-recent"
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff",
+          "dark": {
+            "backgroundColor": "#000000"
+          }
         }
-      ],
-      "expo-localization",
-      "expo-font",
-      "expo-web-browser"
+      ]
     ],
     "experiments": {
-      "reactCompiler": true,
-      "buildCacheProvider": {
-        "plugin": "expo-build-disk-cache"
-      },
-      "tsconfigPaths": true,
-      "typedRoutes": true
-    },
-    "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
-    "assetBundlePatterns": ["**/*"],
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "app.nkzw.www",
-      "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
-      }
-    },
-    "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
-      },
-      "package": "app.nkzw.www",
-      "predictiveBackGestureEnabled": true
+      "typedRoutes": true,
+      "reactCompiler": true
     },
     "extra": {
-      "router": {
-        "origin": false
+      "router": {},
+      "eas": {
+        "projectId": "1345359b-81a0-41e6-8425-2cdd1cbbe47d"
       }
-    }
+    },
+    "owner": "microweb"
   }
 }

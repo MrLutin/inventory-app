@@ -1,61 +1,50 @@
-# The React Native & Expo App Template
+# Welcome to your Expo app 👋
 
-This is the most modern and always up-to-date React Native & Expo app template. It comes with sensible defaults, a great developer experience and is optimized for performance. You can read more about the DevX setup in this [frontend tooling article](https://cpojer.net/posts/fastest-frontend-tooling-in-2022). Check out the corresponding [web app template](https://github.com/nkzw-tech/vite-ts-react-tailwind-template).
+This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
-<img src="https://github.com/user-attachments/assets/91a4b790-fde8-46f9-8052-1f678b319fbf" width="49%" />
-<img src="https://github.com/user-attachments/assets/e93b1a95-cd44-4df8-9b6d-8ae797810375" width="49%" />
+## Get started
 
-## Technologies
+1. Install dependencies
 
-You have to make a lot of decisions and install tons of packages every time you create a new React Native app. This template offers an opinionated starting point and includes the best options for various categories. Instead of spending hours on research and piecing together a setup that works, you can just copy this template and start right away. When you copy this template, you get full control to add or remove any third-party package to customize your app.
+   ```bash
+   npm install
+   ```
 
-- Expo 54 & React Native 0.81 with the New Architecture.
-- [Expo Router](https://docs.expo.dev/router/introduction/)
-- [Uniwind](https://www.uniwind.dev) & [Tailwind](https://tailwindcss.com/)
-- [fbtee](https://github.com/nkzw-tech/fbtee) for i18n.
-- [TypeScript](https://www.typescriptlang.org)
-- [React Compiler](https://react.dev/learn/react-compiler)
-- [`@gorhom/bottom-sheet`](https://github.com/gorhom/react-native-bottom-sheet), [Legend List](https://github.com/LegendApp/legend-list), [`react-native-svg`](https://github.com/software-mansion/react-native-svg) (+ `react-native-svg-transformer`).
-- [Vite+](https://viteplus.dev/)
-- **ESM:** _It's 2025._ This template comes with `"type": "module"`.
-- _(Optional)_ [Relay](https://relay.dev/) for data fetching -> check out the [`with-relay` branch](https://github.com/nkzw-tech/expo-app-template/tree/with-relay).
+2. Start the app
 
-Check out the [`nkzw-tech/server-template`](https://github.com/nkzw-tech/server-template) for a GraphQL based server with Pothos and Prisma, or the [`nkzw-tech/web-app-template`](https://github.com/nkzw-tech/web-app-template) for building web apps.
+   ```bash
+   npx expo start
+   ```
 
-## Getting Started
+In the output, you'll find options to open the app in a
 
-Start here: [Create a new app using this template](https://github.com/new?template_name=expo-app-template&template_owner=nkzw-tech).
+- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
+- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
+- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
+- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
 
-After you created your repo, you can freely modify anything in this template.
+You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
-### Prerequisites
+## Get a fresh project
 
-You'll need Node.js 24, [Vite+](https://viteplus.dev/) and Cocoapods.
+When you're ready, run:
 
 ```bash
-curl -fsSL https://vite.plus | bash
-brew install cocoapods
+npm run reset-project
 ```
 
-For building and running apps locally, follow the [Expo setup guides](https://docs.expo.dev/get-started/set-up-your-environment/?platform=ios&device=simulated).
+This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
 
-### Installing Dependencies
+## Learn more
 
-Run:
+To learn more about developing your project with Expo, look at the following resources:
 
-```bash
-vp install && vp run dev:setup
-```
+- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
+- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
 
-### Running the iOS App in a simulator
+## Join the community
 
-```bash
-vp run prebuild
-vp run ios
-```
+Join our community of developers creating universal apps.
 
-If you already have the app installed on your simulator, you can skip the above steps and simply run `pnpm dev` to start the development server.
-
-## Contributing
-
-Feel free to open issues, initiate discussions and send PRs to improve the template.
+- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
+- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.

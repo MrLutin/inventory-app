@@ -1,24 +1,17 @@
 {
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
-    "allowImportingTsExtensions": true,
-    "allowJs": true,
-    "checkJs": true,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "incremental": true,
-    "isolatedModules": true,
-    "jsx": "react-jsx",
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
-    "noEmit": true,
-    "noImplicitOverride": true,
-    "noUnusedLocals": true,
-    "resolveJsonModule": true,
-    "skipLibCheck": true,
     "strict": true,
-    "target": "es2022"
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    }
   },
-  "exclude": ["node_modules"],
-  "include": [".expo/types/**/*.ts", "**/*.ts", "**/*.tsx", "app-env.d.ts", "expo-env.d.ts"]
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts"
+  ]
 }
