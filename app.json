@@ -55,6 +55,12 @@
         "projectId": "1345359b-81a0-41e6-8425-2cdd1cbbe47d"
       }
     },
-    "owner": "microweb"
+    "owner": "microweb",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/1345359b-81a0-41e6-8425-2cdd1cbbe47d"
+    }
   }
 }
