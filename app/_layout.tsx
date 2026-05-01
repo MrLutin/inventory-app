@@ -1,9 +1,10 @@
 import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useColorScheme, View, Platform } from 'react-native';
+import { useColorScheme, View, Text, Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useColors } from '@/constants/theme';
-import { InventoryProvider } from '@/store/inventory';
+import { InventoryProvider, useInventory } from '@/store/inventory';
 import { AuthProvider, useAuth } from '@/store/auth';
 import WebShell from '@/components/web/WebShell';
 
@@ -31,6 +32,23 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
 // ─── Inner layout (uses hooks that need providers) ────────────────────────────
 
+function OfflineBanner() {
+  const { isOffline } = useInventory();
+  const colors = useColors();
+  if (!isOffline) return null;
+  return (
+    <View style={{
+      backgroundColor: '#F59E0B', flexDirection: 'row', alignItems: 'center',
+      justifyContent: 'center', gap: 6, paddingVertical: 5,
+    }}>
+      <Ionicons name="cloud-offline-outline" size={14} color="#fff" />
+      <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>
+        Mode hors ligne — données locales affichées
+      </Text>
+    </View>
+  );
+}
+
 function AppLayout() {
   const colors = useColors();
   const scheme = useColorScheme();
@@ -47,13 +65,19 @@ function AppLayout() {
     </Stack>
   );
 
+  const content = (
+    <>
+      <OfflineBanner />
+      {stack}
+    </>
+  );
+
   return (
     <>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-      {/* Sur web + connecté : sidebar persistante autour du Stack */}
       {Platform.OS === 'web' && user
-        ? <WebShell>{stack}</WebShell>
-        : stack
+        ? <WebShell>{content}</WebShell>
+        : content
       }
     </>
   );

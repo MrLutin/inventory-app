@@ -120,8 +120,7 @@ export default function ItemFormScreen() {
       return;
     }
     setSaving(true);
-    const item: InventoryItem = {
-      id:          existing?.id ?? Date.now().toString(),
+    const fields = {
       name:        name.trim(),
       sku:         sku.trim(),
       barcode:     barcode.trim(),
@@ -133,9 +132,12 @@ export default function ItemFormScreen() {
       supplier:    supplier.trim(),
       description: description.trim(),
       imageEmoji:  emoji,
-      lastUpdated: new Date().toISOString().slice(0, 10),
     };
-    if (isEdit) { updateItem(item); } else { addItem(item); }
+    if (isEdit && existing) {
+      updateItem({ ...fields, id: existing.id, lastUpdated: new Date().toISOString().slice(0, 10) });
+    } else {
+      addItem(fields);
+    }
     setSaving(false);
     router.back();
   };
