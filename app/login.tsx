@@ -2,15 +2,24 @@ import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   SafeAreaView, KeyboardAvoidingView, Platform,
-  ActivityIndicator, useColorScheme,
+  ActivityIndicator, useColorScheme, ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, Typography, Spacing, Radius, Shadow } from '@/constants/theme';
 import { useAuth } from '@/store/auth';
 
+// ─── Test accounts ───────────────────────────────────────────────────────────
+
+const TEST_ACCOUNTS = [
+  { label: 'Admin',       email: 'admin@mrlutin.dev', password: 'admin123', icon: 'shield-checkmark-outline' as const },
+  { label: 'Utilisateur', email: 'user@mrlutin.dev',  password: 'user123',  icon: 'person-outline'           as const },
+];
+
+// ─── Screen ──────────────────────────────────────────────────────────────────
+
 export default function LoginScreen() {
-  const colors   = useColors();
-  const scheme   = useColorScheme();
+  const colors = useColors();
+  const scheme = useColorScheme();
   const { login } = useAuth();
 
   const [email,    setEmail]    = useState('');
@@ -18,7 +27,7 @@ export default function LoginScreen() {
   const [showPwd,  setShowPwd]  = useState(false);
   const [error,    setError]    = useState('');
   const [loading,  setLoading]  = useState(false);
-  const [focusedField, setFocused] = useState<'email' | 'password' | null>(null);
+  const [focused,  setFocused]  = useState<'email' | 'password' | null>(null);
 
   const handleLogin = async () => {
     if (!email.trim() || !password) {
@@ -27,177 +36,262 @@ export default function LoginScreen() {
     }
     setError('');
     setLoading(true);
-    const result = await login(email, password);
+    const result = await login(email.trim(), password);
     setLoading(false);
-    if (!result.success) setError(result.error ?? 'Erreur inconnue.');
+    if (!result.success) setError(result.error ?? 'Identifiants incorrects.');
   };
 
-  const s = makeStyles(colors, scheme === 'dark');
+  const fillAccount = (e: string, p: string) => {
+    setEmail(e); setPassword(p); setError('');
+  };
+
+  const dark = scheme === 'dark';
 
   return (
-    <SafeAreaView style={s.safe}>
-      <KeyboardAvoidingView style={s.kav} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
+      <KeyboardAvoidingView
+        style={styles.kav}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
 
-        {/* Logo / branding */}
-        <View style={s.hero}>
-          <View style={s.logoBox}>
-            <Text style={s.logoEmoji}>📦</Text>
-          </View>
-          <Text style={s.appName}>Inventory</Text>
-          <Text style={s.appSub}>Gestion de stock simplifiée</Text>
-        </View>
-
-        {/* Card */}
-        <View style={s.card}>
-          <Text style={s.cardTitle}>Connexion</Text>
-
-          {/* Email */}
-          <View style={s.fieldWrapper}>
-            <Text style={s.fieldLabel}>Adresse email</Text>
-            <View style={[s.inputRow, focusedField === 'email' && s.inputRowFocused]}>
-              <Ionicons name="mail-outline" size={18} color={focusedField === 'email' ? colors.primary : colors.gray400} />
-              <TextInput
-                style={s.input}
-                value={email}
-                onChangeText={v => { setEmail(v); setError(''); }}
-                placeholder="admin@mrlutin.dev"
-                placeholderTextColor={colors.gray400}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                onFocus={() => setFocused('email')}
-                onBlur={() => setFocused(null)}
-              />
+          {/* ── Logo ── */}
+          <View style={styles.logoArea}>
+            <View style={[styles.logoRing, { borderColor: colors.primary + '22' }]}>
+              <View style={[styles.logoBox, { backgroundColor: colors.primaryBg }]}>
+                <Ionicons name="cube" size={34} color={colors.primary} />
+              </View>
             </View>
+            <Text style={[styles.appName, { color: colors.black }]}>StockApp</Text>
+            <Text style={[styles.appTagline, { color: colors.gray400 }]}>
+              Gestion d'inventaire simplifiée
+            </Text>
           </View>
 
-          {/* Password */}
-          <View style={s.fieldWrapper}>
-            <Text style={s.fieldLabel}>Mot de passe</Text>
-            <View style={[s.inputRow, focusedField === 'password' && s.inputRowFocused]}>
-              <Ionicons name="lock-closed-outline" size={18} color={focusedField === 'password' ? colors.primary : colors.gray400} />
-              <TextInput
-                style={s.input}
-                value={password}
-                onChangeText={v => { setPassword(v); setError(''); }}
-                placeholder="••••••••"
-                placeholderTextColor={colors.gray400}
-                secureTextEntry={!showPwd}
-                onFocus={() => setFocused('password')}
-                onBlur={() => setFocused(null)}
-                onSubmitEditing={handleLogin}
-                returnKeyType="done"
-              />
-              <TouchableOpacity onPress={() => setShowPwd(v => !v)} hitSlop={8}>
-                <Ionicons name={showPwd ? 'eye-off-outline' : 'eye-outline'} size={18} color={colors.gray400} />
-              </TouchableOpacity>
+          {/* ── Card ── */}
+          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+
+            <View style={styles.cardHeader}>
+              <Text style={[styles.cardTitle, { color: colors.black }]}>Connexion</Text>
+              <Text style={[styles.cardSub, { color: colors.gray400 }]}>
+                Accédez à votre espace de gestion
+              </Text>
             </View>
-          </View>
 
-          {/* Error */}
-          {error ? (
-            <View style={s.errorBox}>
-              <Ionicons name="alert-circle-outline" size={15} color={colors.danger} />
-              <Text style={[s.errorText, { color: colors.danger }]}>{error}</Text>
+            {/* Email */}
+            <View style={styles.field}>
+              <Text style={[styles.fieldLabel, { color: colors.gray600 }]}>Adresse email</Text>
+              <View style={[
+                styles.inputRow,
+                { borderColor: colors.border, backgroundColor: dark ? colors.gray100 : colors.gray50 },
+                focused === 'email' && { borderColor: colors.primary, backgroundColor: colors.surface },
+              ]}>
+                <Ionicons
+                  name="mail-outline" size={18}
+                  color={focused === 'email' ? colors.primary : colors.gray400}
+                />
+                <TextInput
+                  style={[styles.input, { color: colors.black }]}
+                  value={email}
+                  onChangeText={v => { setEmail(v); setError(''); }}
+                  placeholder="vous@example.com"
+                  placeholderTextColor={colors.gray400}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  onFocus={() => setFocused('email')}
+                  onBlur={() => setFocused(null)}
+                />
+              </View>
             </View>
-          ) : null}
 
-          {/* Submit */}
-          <TouchableOpacity style={s.submitBtn} onPress={handleLogin} disabled={loading} activeOpacity={0.85}>
-            {loading
-              ? <ActivityIndicator color="#fff" />
-              : <>
-                  <Ionicons name="log-in-outline" size={18} color="#fff" />
-                  <Text style={s.submitText}>Se connecter</Text>
-                </>
-            }
-          </TouchableOpacity>
-        </View>
+            {/* Password */}
+            <View style={styles.field}>
+              <Text style={[styles.fieldLabel, { color: colors.gray600 }]}>Mot de passe</Text>
+              <View style={[
+                styles.inputRow,
+                { borderColor: colors.border, backgroundColor: dark ? colors.gray100 : colors.gray50 },
+                focused === 'password' && { borderColor: colors.primary, backgroundColor: colors.surface },
+              ]}>
+                <Ionicons
+                  name="lock-closed-outline" size={18}
+                  color={focused === 'password' ? colors.primary : colors.gray400}
+                />
+                <TextInput
+                  style={[styles.input, { color: colors.black }]}
+                  value={password}
+                  onChangeText={v => { setPassword(v); setError(''); }}
+                  placeholder="••••••••"
+                  placeholderTextColor={colors.gray400}
+                  secureTextEntry={!showPwd}
+                  onFocus={() => setFocused('password')}
+                  onBlur={() => setFocused(null)}
+                  onSubmitEditing={handleLogin}
+                  returnKeyType="done"
+                />
+                <TouchableOpacity onPress={() => setShowPwd(v => !v)} hitSlop={10}>
+                  <Ionicons
+                    name={showPwd ? 'eye-off-outline' : 'eye-outline'}
+                    size={18} color={colors.gray400}
+                  />
+                </TouchableOpacity>
+              </View>
+            </View>
 
-        {/* Test accounts hint */}
-        <View style={s.hint}>
-          <Text style={s.hintTitle}>Comptes de test</Text>
-          <View style={s.hintRow}>
-            <TouchableOpacity style={s.hintChip} onPress={() => { setEmail('admin@mrlutin.dev'); setPassword('admin123'); setError(''); }}>
-              <Ionicons name="shield-checkmark-outline" size={13} color={colors.primary} />
-              <Text style={[s.hintChipText, { color: colors.primary }]}>Admin</Text>
+            {/* Error */}
+            {error ? (
+              <View style={[styles.errorBox, { backgroundColor: colors.dangerLight }]}>
+                <Ionicons name="alert-circle-outline" size={15} color={colors.danger} />
+                <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>
+              </View>
+            ) : null}
+
+            {/* Submit */}
+            <TouchableOpacity
+              style={[styles.submitBtn, { backgroundColor: colors.primary }, loading && { opacity: 0.75 }]}
+              onPress={handleLogin}
+              disabled={loading}
+              activeOpacity={0.85}
+            >
+              {loading
+                ? <ActivityIndicator color="#fff" size="small" />
+                : <>
+                    <Ionicons name="log-in-outline" size={18} color="#fff" />
+                    <Text style={styles.submitText}>Se connecter</Text>
+                  </>
+              }
             </TouchableOpacity>
-            <TouchableOpacity style={[s.hintChip, { backgroundColor: colors.gray100 }]} onPress={() => { setEmail('user@mrlutin.dev'); setPassword('user123'); setError(''); }}>
-              <Ionicons name="person-outline" size={13} color={colors.gray600} />
-              <Text style={[s.hintChipText, { color: colors.gray600 }]}>Utilisateur</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
 
+          </View>
+
+          {/* ── Test accounts ── */}
+          <View style={styles.testSection}>
+            <View style={styles.testDivider}>
+              <View style={[styles.testLine, { backgroundColor: colors.border }]} />
+              <Text style={[styles.testLabel, { color: colors.gray400 }]}>Comptes de test</Text>
+              <View style={[styles.testLine, { backgroundColor: colors.border }]} />
+            </View>
+
+            <View style={styles.testRow}>
+              {TEST_ACCOUNTS.map(acc => {
+                const isAdmin = acc.label === 'Admin';
+                return (
+                  <TouchableOpacity
+                    key={acc.label}
+                    style={[
+                      styles.testChip,
+                      {
+                        backgroundColor: isAdmin ? colors.primaryBg : colors.gray100,
+                        borderColor: isAdmin ? colors.primary + '40' : colors.border,
+                      },
+                    ]}
+                    onPress={() => fillAccount(acc.email, acc.password)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name={acc.icon} size={15}
+                      color={isAdmin ? colors.primary : colors.gray600}
+                    />
+                    <View>
+                      <Text style={[styles.testChipLabel, { color: isAdmin ? colors.primary : colors.gray600 }]}>
+                        {acc.label}
+                      </Text>
+                      <Text style={[styles.testChipEmail, { color: colors.gray400 }]}>
+                        {acc.email}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          <Text style={[styles.footer, { color: colors.gray400 }]}>
+            © 2026 StockApp
+          </Text>
+
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-function makeStyles(colors: ReturnType<typeof useColors>, dark: boolean) {
-  return StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.background },
-    kav: { flex: 1, justifyContent: 'center', paddingHorizontal: Spacing.md, gap: Spacing.lg },
+// ─── Styles ──────────────────────────────────────────────────────────────────
 
-    // Hero
-    hero: { alignItems: 'center', gap: Spacing.sm },
-    logoBox: {
-      width: 80, height: 80, borderRadius: Radius.xl,
-      backgroundColor: colors.primaryBg,
-      alignItems: 'center', justifyContent: 'center',
-      borderWidth: 2, borderColor: colors.primary + '40',
-      ...Shadow.md,
-    },
-    logoEmoji: { fontSize: 38 },
-    appName: { ...Typography.h1, color: colors.black },
-    appSub: { ...Typography.body, color: colors.gray400 },
+const styles = StyleSheet.create({
+  safe: { flex: 1 },
+  kav:  { flex: 1 },
+  scroll: {
+    flexGrow: 1, justifyContent: 'center',
+    paddingHorizontal: Spacing.lg, paddingVertical: Spacing.xl,
+    gap: Spacing.lg,
+  },
 
-    // Card
-    card: {
-      backgroundColor: colors.surface, borderRadius: Radius.xl,
-      padding: Spacing.lg, gap: Spacing.md,
-      borderWidth: 1, borderColor: colors.border, ...Shadow.lg,
-    },
-    cardTitle: { ...Typography.h3, color: colors.black, marginBottom: Spacing.xs },
+  // Logo
+  logoArea: { alignItems: 'center', gap: 10 },
+  logoRing: {
+    width: 100, height: 100, borderRadius: 50,
+    borderWidth: 2, alignItems: 'center', justifyContent: 'center',
+    marginBottom: 4,
+  },
+  logoBox: {
+    width: 82, height: 82, borderRadius: 41,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  appName: { fontSize: 26, fontWeight: '800', letterSpacing: -0.5 },
+  appTagline: { ...Typography.body },
 
-    // Field
-    fieldWrapper: { gap: 6 },
-    fieldLabel: { ...Typography.bodySmall, fontWeight: '600', color: colors.gray600 },
-    inputRow: {
-      flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-      borderWidth: 1.5, borderColor: colors.border, borderRadius: Radius.md,
-      paddingHorizontal: 14, paddingVertical: 12,
-      backgroundColor: dark ? colors.gray50 : '#F8FAFC',
-    },
-    inputRowFocused: { borderColor: colors.primary, backgroundColor: colors.surface },
-    input: { flex: 1, ...Typography.body, color: colors.black, padding: 0 },
+  // Card
+  card: {
+    borderRadius: Radius.xl, borderWidth: 1,
+    padding: Spacing.lg, gap: Spacing.md,
+    ...Shadow.lg,
+  },
+  cardHeader: { gap: 4 },
+  cardTitle: { ...Typography.h3 },
+  cardSub:   { ...Typography.bodySmall },
 
-    // Error
-    errorBox: {
-      flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-      backgroundColor: colors.dangerLight, borderRadius: Radius.md,
-      paddingHorizontal: Spacing.md, paddingVertical: 10,
-    },
-    errorText: { ...Typography.bodySmall, flex: 1 },
+  // Field
+  field: { gap: 7 },
+  fieldLabel: { ...Typography.bodySmall, fontWeight: '600' },
+  inputRow: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    borderWidth: 1.5, borderRadius: Radius.md,
+    paddingHorizontal: 14, paddingVertical: 13,
+  },
+  input: { flex: 1, ...Typography.body, padding: 0 },
 
-    // Submit
-    submitBtn: {
-      backgroundColor: colors.primary, borderRadius: Radius.lg,
-      paddingVertical: 14, flexDirection: 'row',
-      alignItems: 'center', justifyContent: 'center', gap: Spacing.sm,
-      marginTop: Spacing.xs, ...Shadow.sm,
-    },
-    submitText: { ...Typography.h4, color: '#fff' },
+  // Error
+  errorBox: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    borderRadius: Radius.md, paddingHorizontal: Spacing.md, paddingVertical: 10,
+  },
+  errorText: { ...Typography.bodySmall, flex: 1 },
 
-    // Hint
-    hint: { alignItems: 'center', gap: Spacing.sm },
-    hintTitle: { ...Typography.caption, color: colors.gray400, textTransform: 'uppercase', letterSpacing: 0.5 },
-    hintRow: { flexDirection: 'row', gap: Spacing.sm },
-    hintChip: {
-      flexDirection: 'row', alignItems: 'center', gap: 5,
-      backgroundColor: colors.primaryBg, borderRadius: Radius.full,
-      paddingHorizontal: 14, paddingVertical: 8,
-    },
-    hintChipText: { ...Typography.bodySmall, fontWeight: '600' },
-  });
-}
+  // Submit
+  submitBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: Spacing.sm, paddingVertical: 15, borderRadius: Radius.lg,
+    marginTop: Spacing.xs, ...Shadow.sm,
+  },
+  submitText: { ...Typography.h4, color: '#fff' },
+
+  // Test accounts
+  testSection: { gap: Spacing.md },
+  testDivider: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  testLine: { flex: 1, height: 1 },
+  testLabel: { ...Typography.caption, textTransform: 'uppercase', letterSpacing: 0.5 },
+  testRow: { flexDirection: 'row', gap: Spacing.sm },
+  testChip: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1.5, borderRadius: Radius.lg, padding: 12,
+  },
+  testChipLabel: { ...Typography.bodySmall, fontWeight: '700' },
+  testChipEmail: { ...Typography.caption, marginTop: 1 },
+
+  footer: { ...Typography.caption, textAlign: 'center' },
+});
