@@ -100,6 +100,26 @@ export default function WebShell({ children }: { children: React.ReactNode }) {
                 <Ionicons name="add-circle-outline" size={19} color={colors.accent} />
                 <Text style={[styles.navLabel, { color: colors.accent }]}>Nouvel article</Text>
               </Pressable>
+              <Pressable
+                style={({ hovered }: any) => [
+                  styles.navItem,
+                  hovered && { backgroundColor: colors.gray100 },
+                ]}
+                onPress={() => router.push('/suppliers?add=1' as any)}
+              >
+                <Ionicons name="business-outline" size={19} color={colors.primary} />
+                <Text style={[styles.navLabel, { color: colors.primary }]}>Nouveau fournisseur</Text>
+              </Pressable>
+              <Pressable
+                style={({ hovered }: any) => [
+                  styles.navItem,
+                  hovered && { backgroundColor: colors.gray100 },
+                ]}
+                onPress={() => router.push('/locations?add=1' as any)}
+              >
+                <Ionicons name="location-outline" size={19} color="#F97316" />
+                <Text style={[styles.navLabel, { color: '#F97316' }]}>Nouvel emplacement</Text>
+              </Pressable>
             </>
           )}
         </ScrollView>
