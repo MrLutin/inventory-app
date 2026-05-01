@@ -18,7 +18,6 @@ const NAV_ITEMS: NavItemConfig[] = [
   { label: 'Inventaire',   icon: 'cube-outline',     activeIcon: 'cube',     href: '/' },
   { label: 'Fournisseurs', icon: 'business-outline', activeIcon: 'business', href: '/suppliers' },
   { label: 'Emplacements', icon: 'location-outline', activeIcon: 'location', href: '/locations' },
-  { label: 'Compte',       icon: 'person-outline',   activeIcon: 'person',   href: '/account' },
 ];
 
 // ─── NavItem ─────────────────────────────────────────────────────────────────
@@ -124,22 +123,47 @@ export default function WebShell({ children }: { children: React.ReactNode }) {
           )}
         </ScrollView>
 
-        {/* User footer */}
-        <View style={[styles.userFooter, { borderTopColor: colors.border }]}>
-          <View style={[styles.avatar, { backgroundColor: colors.primaryBg }]}>
-            <Text style={[styles.avatarText, { color: colors.primary }]}>{user?.initials ?? '?'}</Text>
-          </View>
-          <View style={styles.userInfo}>
-            <Text style={[styles.userName, { color: colors.black }]} numberOfLines={1}>
-              {user?.name}
-            </Text>
-            <Text style={[styles.userRole, { color: colors.gray400 }]}>
-              {isAdmin ? '🛡️ Admin' : '👤 Utilisateur'}
-            </Text>
-          </View>
+        {/* User footer — click to open account */}
+        <View style={[styles.userFooterWrap, { borderTopColor: colors.border }]}>
+          <Pressable
+            style={({ hovered }: any) => [
+              styles.userFooter,
+              pathname === '/account' && { backgroundColor: `${colors.primary}18` },
+              pathname !== '/account' && hovered && { backgroundColor: colors.gray100 },
+            ]}
+            onPress={() => router.push('/account')}
+          >
+            <View style={[
+              styles.avatar,
+              { backgroundColor: colors.primaryBg },
+              pathname === '/account' && { backgroundColor: colors.primary },
+            ]}>
+              <Text style={[
+                styles.avatarText,
+                { color: colors.primary },
+                pathname === '/account' && { color: '#fff' },
+              ]}>
+                {user?.initials ?? '?'}
+              </Text>
+            </View>
+            <View style={styles.userInfo}>
+              <Text style={[styles.userName, { color: pathname === '/account' ? colors.primary : colors.black }]} numberOfLines={1}>
+                {user?.name}
+              </Text>
+              <Text style={[styles.userRole, { color: colors.gray400 }]}>
+                {isAdmin ? '🛡️ Admin' : '👤 Utilisateur'}
+              </Text>
+            </View>
+            <Ionicons
+              name="chevron-forward"
+              size={14}
+              color={pathname === '/account' ? colors.primary : colors.gray400}
+            />
+          </Pressable>
           <Pressable
             style={({ hovered }: any) => [
               styles.logoutBtn,
+              { marginRight: Spacing.sm },
               hovered && { backgroundColor: colors.dangerLight },
             ]}
             onPress={logout}
@@ -192,9 +216,17 @@ const styles = StyleSheet.create({
     width: 3, borderTopLeftRadius: 2, borderBottomLeftRadius: 2,
   },
 
+  userFooterWrap: {
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.sm,
+    gap: 4,
+  },
   userFooter: {
+    flex: 1,
     flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    padding: Spacing.md, borderTopWidth: 1,
+    padding: Spacing.sm, borderRadius: Radius.md,
   },
   avatar: {
     width: 36, height: 36, borderRadius: Radius.full,
