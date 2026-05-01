@@ -3,6 +3,8 @@ import { View, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, Radius, Shadow } from '@/constants/theme';
 
+// Sur web, on masque la tab bar (remplacée par la sidebar WebShell)
+
 export default function TabLayout() {
   const colors = useColors();
 
@@ -17,7 +19,7 @@ export default function TabLayout() {
           fontWeight: '600',
           marginBottom: 6,
         },
-        tabBarStyle: {
+        tabBarStyle: Platform.OS === 'web' ? { display: 'none' } : {
           position: 'absolute',
           bottom: Platform.OS === 'ios' ? 28 : 16,
           left: 20,
