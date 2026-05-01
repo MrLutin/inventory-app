@@ -34,8 +34,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
 function OfflineBanner() {
   const { isOffline } = useInventory();
-  const colors = useColors();
-  if (!isOffline) return null;
+  const { isOfflineAuth } = useAuth();
+  const offline = isOffline || isOfflineAuth;
+  if (!offline) return null;
   return (
     <View style={{
       backgroundColor: '#F59E0B', flexDirection: 'row', alignItems: 'center',
@@ -43,7 +44,7 @@ function OfflineBanner() {
     }}>
       <Ionicons name="cloud-offline-outline" size={14} color="#fff" />
       <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>
-        Mode hors ligne — données locales affichées
+        Mode hors ligne — serveur Directus injoignable
       </Text>
     </View>
   );
