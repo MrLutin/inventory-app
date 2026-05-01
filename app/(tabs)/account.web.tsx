@@ -4,8 +4,13 @@ import {
   TextInput, ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { useColors, Spacing, Radius, Shadow, Typography } from '@/constants/theme';
 import { useAuth } from '@/store/auth';
+
+const APP_NAME    = Constants.expoConfig?.name    ?? '—';
+const APP_SLUG    = Constants.expoConfig?.slug    ?? '—';
+const APP_VERSION = Constants.expoConfig?.version ?? '—';
 
 // ─── Field ────────────────────────────────────────────────────────────────────
 
@@ -104,6 +109,34 @@ function Toast({ message, type }: { message: string; type: 'success' | 'error' }
     </View>
   );
 }
+
+// ─── AboutRow ────────────────────────────────────────────────────────────────
+
+function AboutRow({ label, value, icon }: { label: string; value: string; icon: keyof typeof Ionicons.glyphMap }) {
+  const colors = useColors();
+  return (
+    <View style={[aStyles.row, { borderColor: colors.border }]}>
+      <View style={[aStyles.iconBox, { backgroundColor: colors.gray100 }]}>
+        <Ionicons name={icon} size={15} color={colors.gray600} />
+      </View>
+      <Text style={[aStyles.label, { color: colors.gray400 }]}>{label}</Text>
+      <Text style={[aStyles.value, { color: colors.black }]}>{value}</Text>
+    </View>
+  );
+}
+
+const aStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+    paddingVertical: 11, borderBottomWidth: 1,
+  },
+  iconBox: {
+    width: 30, height: 30, borderRadius: Radius.sm,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  label: { ...Typography.bodySmall, flex: 1 },
+  value: { ...Typography.bodySmall, fontWeight: '700', fontFamily: 'monospace' as any },
+});
 
 // ─── Screen ──────────────────────────────────────────────────────────────────
 
@@ -315,6 +348,15 @@ export default function WebAccountScreen() {
             </TouchableOpacity>
           </SectionCard>
 
+          {/* ── À propos ── */}
+          <SectionCard title="À propos" subtitle="Informations sur l'application" icon="information-circle-outline">
+            <View style={styles.aboutGrid}>
+              <AboutRow label="Nom"     value={APP_NAME}    icon="cube-outline" />
+              <AboutRow label="Slug"    value={APP_SLUG}    icon="at-outline" />
+              <AboutRow label="Version" value={APP_VERSION} icon="git-branch-outline" />
+            </View>
+          </SectionCard>
+
         </View>
       </ScrollView>
     </View>
@@ -397,6 +439,9 @@ const styles = StyleSheet.create({
   // Password helpers
   showPwdRow: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
   showPwdText: { ...Typography.caption },
+
+  // About
+  aboutGrid: { gap: 0 },
 
   // Save button
   saveBtn: {

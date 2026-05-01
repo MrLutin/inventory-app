@@ -5,8 +5,13 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { useColors, Spacing, Radius, Shadow, Typography } from '@/constants/theme';
 import { useAuth } from '@/store/auth';
+
+const APP_VERSION = Constants.expoConfig?.version ?? '—';
+const APP_NAME    = Constants.expoConfig?.name    ?? '—';
+const APP_SLUG    = Constants.expoConfig?.slug    ?? '—';
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
@@ -122,7 +127,11 @@ export default function AccountScreen() {
           <View style={[styles.sep, { backgroundColor: colors.border }]} />
           <MenuRow icon="shield-checkmark-outline" label="Confidentialité" />
           <View style={[styles.sep, { backgroundColor: colors.border }]} />
-          <MenuRow icon="information-circle-outline" label="Version" sublabel="1.0.0" />
+          <MenuRow icon="information-circle-outline" label="Version"   sublabel={APP_VERSION} />
+          <View style={[styles.sep, { backgroundColor: colors.border }]} />
+          <MenuRow icon="cube-outline"               label="Nom"       sublabel={APP_NAME} />
+          <View style={[styles.sep, { backgroundColor: colors.border }]} />
+          <MenuRow icon="at-outline"                 label="Slug"      sublabel={APP_SLUG} />
         </View>
 
         {/* Déconnexion */}
