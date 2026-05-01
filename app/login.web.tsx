@@ -71,7 +71,7 @@ export default function WebLoginScreen() {
             <View style={styles.logoBox}>
               <Ionicons name="cube" size={28} color={colors.primary} />
             </View>
-            <Text style={styles.logoText}>StockApp</Text>
+            <Text style={styles.logoText}>Capreit</Text>
           </View>
 
           {/* Hero text */}
@@ -98,7 +98,7 @@ export default function WebLoginScreen() {
         </View>
 
         {/* Footer */}
-        <Text style={styles.leftFooter}>© 2026 StockApp · Tous droits réservés</Text>
+        <Text style={styles.leftFooter}>© 2026 Capreit · Tous droits réservés</Text>
       </View>
 
       {/* ══════════════════════════════════════════

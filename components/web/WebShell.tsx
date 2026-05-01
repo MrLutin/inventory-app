@@ -69,7 +69,7 @@ export default function WebShell({ children }: { children: React.ReactNode }) {
             <Ionicons name="cube" size={20} color="#fff" />
           </View>
           <View>
-            <Text style={[styles.logoTitle, { color: colors.black }]}>StockApp</Text>
+            <Text style={[styles.logoTitle, { color: colors.black }]}>Capreit</Text>
             <Text style={[styles.logoSub, { color: colors.gray400 }]}>Gestion d'inventaire</Text>
           </View>
         </View>

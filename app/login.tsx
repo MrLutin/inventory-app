@@ -66,7 +66,7 @@ export default function LoginScreen() {
                 <Ionicons name="cube" size={34} color={colors.primary} />
               </View>
             </View>
-            <Text style={[styles.appName, { color: colors.black }]}>StockApp</Text>
+            <Text style={[styles.appName, { color: colors.black }]}>Capreit</Text>
             <Text style={[styles.appTagline, { color: colors.gray400 }]}>
               Gestion d'inventaire simplifiée
             </Text>
@@ -211,7 +211,7 @@ export default function LoginScreen() {
           </View>
 
           <Text style={[styles.footer, { color: colors.gray400 }]}>
-            © 2026 StockApp
+            © 2026 Capreit
           </Text>
 
         </ScrollView>
