@@ -151,6 +151,13 @@ export async function directusLogin(email: string, password: string): Promise<{
   return { user: meRes.data, accessToken: authRes.data.access_token };
 }
 
+export async function apiGetMe(): Promise<DirectusUser> {
+  const res = await apiRequest<{ data: DirectusUser }>(
+    '/users/me?fields=id,first_name,last_name,email,role.id,role.name',
+  );
+  return res.data;
+}
+
 export async function directusLogout(): Promise<void> {
   if (_refresh) {
     await apiRequest('/auth/logout', {

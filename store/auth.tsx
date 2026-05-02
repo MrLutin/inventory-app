@@ -7,6 +7,7 @@ import {
   hasSession,
   getValidToken,
   clearTokens,
+  apiGetMe,
 } from '@/lib/directusClient';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -67,6 +68,18 @@ function detectRole(roleName: string): Role {
   return roleName.toLowerCase().includes('admin') ? 'admin' : 'user';
 }
 
+function buildUser(du: import('@/lib/directusClient').DirectusUser): User {
+  // Safely handle null first_name / last_name from Directus
+  const name = [du.first_name, du.last_name].filter(Boolean).join(' ') || du.email;
+  return {
+    id:       du.id,
+    name,
+    email:    du.email,
+    role:     detectRole(du.role?.name ?? ''),
+    initials: buildInitials(name),
+  };
+}
+
 function isNetworkError(message: string): boolean {
   return (
     message.includes('Network request failed') ||
@@ -98,23 +111,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         await loadStoredTokens();
 
-        // Try to get a valid Directus token first
+        // Try to get a valid Directus token and refresh profile
         if (hasSession()) {
           const token = await getValidToken();
           if (token) {
-            const raw = await AsyncStorage.getItem(STORAGE_KEY);
-            if (raw) {
-              setUser(JSON.parse(raw));
+            try {
+              // Always re-fetch profile from Directus to get latest info
+              const du      = await apiGetMe();
+              const appUser = buildUser(du);
+              await persistUser(appUser, false);
+              setUser(appUser);
               setIsOfflineAuth(false);
               setLoading(false);
               return;
+            } catch {
+              // Server reachable but profile fetch failed — fall through to cache
             }
           }
         }
 
-        // Directus token invalid/expired — restore from cached user (offline mode)
-        const raw     = await AsyncStorage.getItem(STORAGE_KEY);
-        const offline = await AsyncStorage.getItem(STORAGE_OFFLINE);
+        // Directus unreachable — restore from cached user (offline mode)
+        const raw = await AsyncStorage.getItem(STORAGE_KEY);
         if (raw) {
           setUser(JSON.parse(raw));
           setIsOfflineAuth(true);
@@ -135,13 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const { user: du } = await directusLogin(trimmedEmail, password);
 
-      const appUser: User = {
-        id:       du.id,
-        name:     `${du.first_name} ${du.last_name}`.trim(),
-        email:    du.email,
-        role:     detectRole(du.role?.name ?? ''),
-        initials: buildInitials(`${du.first_name} ${du.last_name}`.trim()),
-      };
+      const appUser: User = buildUser(du);
 
       await persistUser(appUser, false);
       setIsOfflineAuth(false);
