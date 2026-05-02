@@ -12,15 +12,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.microweb.inventory",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false,
-        "NSAppTransportSecurity": {
-          "NSExceptionDomains": {
-            "51.222.107.160": {
-              "NSExceptionAllowsInsecureHTTPLoads": true,
-              "NSIncludesSubdomains": false
-            }
-          }
-        }
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {

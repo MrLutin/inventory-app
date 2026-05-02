@@ -20,7 +20,7 @@
 //
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const DIRECTUS_URL  = 'http://51.222.107.160:8055';
+export const DIRECTUS_URL  = 'https://directus.mrlutin.ovh';
 export const COLLECTION    = 'items';
 
 // Fields to request from Directus (comma-separated)
