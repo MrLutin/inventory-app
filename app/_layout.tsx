@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useColorScheme, View, Text, Platform } from 'react-native';
+import { useColorScheme, View, Text, Platform, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors } from '@/constants/theme';
 import { InventoryProvider, useInventory } from '@/store/inventory';
@@ -33,19 +33,37 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 // ─── Inner layout (uses hooks that need providers) ────────────────────────────
 
 function OfflineBanner() {
-  const { isOffline } = useInventory();
-  const { isOfflineAuth } = useAuth();
+  const { isOffline, refresh } = useInventory();
+  const { isOfflineAuth, logout } = useAuth();
   const offline = isOffline || isOfflineAuth;
   if (!offline) return null;
+
+  const handleRetry = async () => {
+    if (isOfflineAuth) {
+      // Doit se reconnecter pour obtenir un vrai token Directus
+      await logout();
+    } else {
+      await refresh();
+    }
+  };
+
   return (
     <View style={{
       backgroundColor: '#F59E0B', flexDirection: 'row', alignItems: 'center',
-      justifyContent: 'center', gap: 6, paddingVertical: 5,
+      justifyContent: 'center', gap: 8, paddingVertical: 6, paddingHorizontal: 12,
     }}>
       <Ionicons name="cloud-offline-outline" size={14} color="#fff" />
-      <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>
-        Mode hors ligne — serveur Directus injoignable
+      <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700', flex: 1, textAlign: 'center' }}>
+        {isOfflineAuth ? 'Connecté hors ligne — données locales' : 'Serveur Directus injoignable'}
       </Text>
+      <TouchableOpacity onPress={handleRetry} style={{
+        backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: 4,
+        paddingHorizontal: 8, paddingVertical: 3,
+      }}>
+        <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>
+          {isOfflineAuth ? 'Se reconnecter' : 'Réessayer'}
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 }
