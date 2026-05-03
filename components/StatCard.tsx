@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useColors, Radius, Shadow, Spacing, Typography } from '@/constants/theme';
 
 interface Props {
@@ -7,22 +7,29 @@ interface Props {
   value: string | number;
   emoji: string;
   accent?: string;
+  onPress?: () => void;
+  active?: boolean;
 }
 
-export default function StatCard({ label, value, emoji, accent }: Props) {
+export default function StatCard({ label, value, emoji, accent, onPress, active }: Props) {
   const colors = useColors();
   const color = accent ?? colors.primary;
 
   return (
-    <View style={[styles.card, {
-      backgroundColor: colors.surface,
-      borderColor: colors.border,
-      borderTopColor: color,
-    }]}>
+    <TouchableOpacity
+      style={[styles.card, {
+        backgroundColor: active ? color : colors.surface,
+        borderColor: active ? color : colors.border,
+        borderTopColor: color,
+      }]}
+      onPress={onPress}
+      activeOpacity={onPress ? 0.75 : 1}
+      disabled={!onPress}
+    >
       <Text style={styles.emoji}>{emoji}</Text>
-      <Text style={[styles.value, { color }]}>{value}</Text>
-      <Text style={[styles.label, { color: colors.gray600 }]}>{label}</Text>
-    </View>
+      <Text style={[styles.value, { color: active ? '#fff' : color }]}>{value}</Text>
+      <Text style={[styles.label, { color: active ? 'rgba(255,255,255,0.85)' : colors.gray600 }]}>{label}</Text>
+    </TouchableOpacity>
   );
 }
 

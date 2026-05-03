@@ -1,13 +1,15 @@
 import React from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  SafeAreaView, StatusBar, Alert,
+  SafeAreaView, StatusBar, Alert, Image,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { getStockStatus, CATEGORY_LABELS } from '@/constants/data';
+import { getImageUrl } from '@/lib/directusClient';
 import { useColors, Spacing, Radius, Shadow, Typography } from '@/constants/theme';
 import { useInventory } from '@/store/inventory';
+import { useAuth } from '@/store/auth';
 import StockBadge from '@/components/StockBadge';
 import CategoryBadge from '@/components/CategoryBadge';
 
@@ -53,6 +55,7 @@ export default function ItemDetailScreen() {
   const router = useRouter();
   const colors = useColors();
   const { getItem, deleteItem } = useInventory();
+  const { isAdmin } = useAuth();
   const item = getItem(id);
 
   const handleDelete = () => {
@@ -117,12 +120,15 @@ export default function ItemDetailScreen() {
         {/* Hero card */}
         <View style={[styles.heroCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={[styles.heroEmoji, { backgroundColor: colors.gray100 }]}>
-            <Text style={styles.heroEmojiText}>{item.imageEmoji}</Text>
+            {getImageUrl(item.image)
+              ? <Image source={{ uri: getImageUrl(item.image)! }} style={styles.heroImage} resizeMode="cover" />
+              : <Ionicons name="image-outline" size={40} color={colors.gray400} />
+            }
           </View>
           <Text style={[styles.heroName, { color: colors.black }]}>{item.name}</Text>
           <View style={styles.heroBadges}>
             <StockBadge status={status} />
-            <CategoryBadge category={item.category} />
+            <CategoryBadge category={item.category} color={item.categoryColor} />
           </View>
 
           <View style={styles.stockBarWrapper}>
@@ -144,18 +150,22 @@ export default function ItemDetailScreen() {
             <Text style={[styles.metricValue, { color: colors.black }]}>{item.quantity}</Text>
             <Text style={[styles.metricLabel, { color: colors.gray400 }]}>En stock</Text>
           </View>
-          <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Text style={[styles.metricValue, { color: colors.black }]}>{item.price.toFixed(2)} €</Text>
-            <Text style={[styles.metricLabel, { color: colors.gray400 }]}>Prix unit.</Text>
-          </View>
-          <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Text style={[styles.metricValue, { color: colors.primary }]}>
-              {parseFloat(stockValue) >= 1000
-                ? `${(parseFloat(stockValue) / 1000).toFixed(1)}k €`
-                : `${stockValue} €`}
-            </Text>
-            <Text style={[styles.metricLabel, { color: colors.gray400 }]}>Valeur stock</Text>
-          </View>
+          {isAdmin && (
+            <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.metricValue, { color: colors.black }]}>{item.price.toFixed(2)} $</Text>
+              <Text style={[styles.metricLabel, { color: colors.gray400 }]}>Prix unit.</Text>
+            </View>
+          )}
+          {isAdmin && (
+            <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.metricValue, { color: colors.primary }]}>
+                {parseFloat(stockValue) >= 1000
+                  ? `${(parseFloat(stockValue) / 1000).toFixed(1)}k$`
+                  : `${stockValue} $`}
+              </Text>
+              <Text style={[styles.metricLabel, { color: colors.gray400 }]}>Valeur stock</Text>
+            </View>
+          )}
         </View>
 
         {/* Description */}
@@ -168,30 +178,61 @@ export default function ItemDetailScreen() {
           <View style={[styles.separator, { backgroundColor: colors.border }]} />
           <InfoRow label="Code-barres" value={item.barcode} emoji="📊" />
           <View style={[styles.separator, { backgroundColor: colors.border }]} />
-          <InfoRow label="Catégorie" value={CATEGORY_LABELS[item.category]} emoji="📁" />
+          <InfoRow label="Catégorie" value={CATEGORY_LABELS[item.category] ?? item.category} emoji="📁" />
         </Section>
 
         <Section title="Stock & logistique">
-          <InfoRow label="Quantité actuelle" value={`${item.quantity} unités`} emoji="📦" accent={status !== 'in_stock'} />
+          <InfoRow label="Quantité totale" value={`${item.quantity} unités`} emoji="📦" accent={status !== 'in_stock'} />
           <View style={[styles.separator, { backgroundColor: colors.border }]} />
           <InfoRow label="Quantité minimale" value={`${item.minQuantity} unités`} emoji="⚠️" />
           <View style={[styles.separator, { backgroundColor: colors.border }]} />
-          <InfoRow label="Emplacement" value={item.location} emoji="📍" />
-          <View style={[styles.separator, { backgroundColor: colors.border }]} />
-          <InfoRow label="Fournisseur" value={item.supplier} emoji="🏭" />
+          <InfoRow label="Fournisseur" value={item.supplier?.name ?? '—'} emoji="🏭" />
         </Section>
 
-        <Section title="Finances">
-          <InfoRow label="Prix unitaire" value={`${item.price.toFixed(2)} €`} emoji="💶" />
-          <View style={[styles.separator, { backgroundColor: colors.border }]} />
-          <InfoRow label="Valeur du stock" value={`${stockValue} €`} emoji="💰" accent />
-        </Section>
+        {item.locations.length > 1 && (
+          <Section title="Répartition par emplacement">
+            {item.locations.map((loc, idx) => {
+              const qty = loc.quantity ?? 0;
+              const locColor = qty === 0
+                ? colors.danger
+                : qty < item.minQuantity ? colors.warning : colors.success;
+              const locBg = qty === 0
+                ? colors.dangerLight
+                : qty < item.minQuantity ? colors.warningLight : colors.successLight;
+              return (
+                <React.Fragment key={loc.junctionId ?? loc.id}>
+                  {idx > 0 && <View style={[styles.separator, { backgroundColor: colors.border }]} />}
+                  <View style={styles.locRow}>
+                    <View style={[styles.locDot, { backgroundColor: locColor }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.locName, { color: colors.black }]}>{loc.name}</Text>
+                      {loc.zone ? <Text style={[styles.locZone, { color: colors.gray400 }]}>{loc.zone}</Text> : null}
+                    </View>
+                    <View style={[styles.locQtyBadge, { backgroundColor: locBg }]}>
+                      <Text style={[styles.locQty, { color: locColor }]}>{qty}</Text>
+                      <Text style={[styles.locQtyUnit, { color: locColor }]}>unités</Text>
+                    </View>
+                  </View>
+                </React.Fragment>
+              );
+            })}
+          </Section>
+        )}
+
+        {isAdmin && (
+          <Section title="Finances">
+            <InfoRow label="Prix unitaire" value={`${item.price.toFixed(2)} $`} emoji="💶" />
+            <View style={[styles.separator, { backgroundColor: colors.border }]} />
+            <InfoRow label="Valeur du stock" value={`${stockValue} $`} emoji="💰" accent />
+          </Section>
+        )}
 
         <Section title="Informations">
           <InfoRow label="Dernière mise à jour" value={item.lastUpdated} emoji="🗓️" />
         </Section>
 
-        {/* Actions */}
+        {/* Actions — admin seulement */}
+        {isAdmin && (
         <View style={styles.actionsSection}>
           <TouchableOpacity
             style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
@@ -208,6 +249,7 @@ export default function ItemDetailScreen() {
             <Text style={[styles.deleteBtnText, { color: colors.danger }]}>Supprimer</Text>
           </TouchableOpacity>
         </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -236,11 +278,12 @@ const styles = StyleSheet.create({
     borderRadius: Radius.xl, padding: Spacing.lg,
     alignItems: 'center', gap: Spacing.sm, borderWidth: 1, ...Shadow.md,
   },
+  heroImage: { width: '100%', height: '100%' },
   heroEmoji: {
     width: 88, height: 88, borderRadius: Radius.xl,
     alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.sm,
+    overflow: 'hidden',
   },
-  heroEmojiText: { fontSize: 44 },
   heroName: { ...Typography.h2, textAlign: 'center' },
   heroBadges: { flexDirection: 'row', gap: Spacing.sm, flexWrap: 'wrap', justifyContent: 'center' },
 
@@ -280,6 +323,15 @@ const styles = StyleSheet.create({
   description: { ...Typography.body, lineHeight: 22, padding: Spacing.md },
 
   // Actions
+  // Location breakdown
+  locRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: 12 },
+  locDot: { width: 8, height: 8, borderRadius: 4 },
+  locName: { ...Typography.body, fontWeight: '600' },
+  locZone: { ...Typography.caption, marginTop: 1 },
+  locQtyBadge: { flexDirection: 'row', alignItems: 'baseline', gap: 3, paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.full },
+  locQty: { fontSize: 16, fontWeight: '700' },
+  locQtyUnit: { fontSize: 11, fontWeight: '500' },
+
   actionsSection: { gap: Spacing.sm, marginTop: Spacing.sm },
   primaryBtn: {
     borderRadius: Radius.lg, paddingVertical: 14,

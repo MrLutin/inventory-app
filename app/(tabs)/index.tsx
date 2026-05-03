@@ -1,46 +1,48 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, TextInput, FlatList, StyleSheet,
-  TouchableOpacity, ScrollView, SafeAreaView, StatusBar,
+  TouchableOpacity, SafeAreaView, StatusBar, RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Category, CATEGORY_LABELS, getStockStatus } from '@/constants/data';
+import { getStockStatus, StockStatus } from '@/constants/data';
+
+type StatusFilter = 'all' | StockStatus;
 import { useColors, Spacing, Radius, Typography, Shadow } from '@/constants/theme';
 import { useInventory } from '@/store/inventory';
 import { useAuth } from '@/store/auth';
 import ItemCard from '@/components/ItemCard';
 import StatCard from '@/components/StatCard';
 
-const CATEGORIES: { key: Category | 'all'; label: string }[] = [
-  { key: 'all', label: 'Tout' },
-  { key: 'electronics', label: 'Électronique' },
-  { key: 'clothing', label: 'Vêtements' },
-  { key: 'food', label: 'Alimentation' },
-  { key: 'furniture', label: 'Mobilier' },
-  { key: 'tools', label: 'Outils' },
-  { key: 'other', label: 'Autre' },
-];
-
 export default function InventoryScreen() {
   const router = useRouter();
-  const { items } = useInventory();
+  const { items, refresh, loading } = useInventory();
   const { isAdmin, user } = useAuth();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refresh();
+    setRefreshing(false);
+  }, [refresh]);
   const colors = useColors();
-  const [search, setSearch] = useState('');
-  const [activeCategory, setActiveCategory] = useState<Category | 'all'>('all');
+  const [search,       setSearch]       = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+
+  const toggleFilter = (key: StatusFilter) =>
+    setStatusFilter(prev => prev === key ? 'all' : key);
 
   const filtered = useMemo(() => {
     return items.filter(item => {
-      const matchCat = activeCategory === 'all' || item.category === activeCategory;
-      const q = search.toLowerCase();
+      const q           = search.toLowerCase();
       const matchSearch = !q
         || item.name.toLowerCase().includes(q)
         || item.sku.toLowerCase().includes(q)
         || item.barcode.includes(q);
-      return matchCat && matchSearch;
+      const matchStatus = statusFilter === 'all' || getStockStatus(item) === statusFilter;
+      return matchSearch && matchStatus;
     });
-  }, [search, activeCategory, items]);
+  }, [search, statusFilter, items]);
 
   const stats = useMemo(() => {
     const total = items.length;
@@ -76,11 +78,23 @@ export default function InventoryScreen() {
               )}
             </View>
 
-            {/* Stats row */}
+            {/* Stats row — tap pour filtrer */}
             <View style={styles.statsRow}>
-              <StatCard label="Articles" value={stats.total} emoji="📦" accent={colors.primary} />
-              <StatCard label="Stock faible" value={stats.lowStock} emoji="⚠️" accent={colors.warning} />
-              <StatCard label="Rupture" value={stats.outOfStock} emoji="🚨" accent={colors.danger} />
+              <StatCard
+                label="Articles" value={stats.total} emoji="📦" accent={colors.primary}
+                active={statusFilter === 'all'}
+                onPress={() => setStatusFilter('all')}
+              />
+              <StatCard
+                label="Stock faible" value={stats.lowStock} emoji="⚠️" accent={colors.warning}
+                active={statusFilter === 'low_stock'}
+                onPress={() => toggleFilter('low_stock')}
+              />
+              <StatCard
+                label="Rupture" value={stats.outOfStock} emoji="🚨" accent={colors.danger}
+                active={statusFilter === 'out_of_stock'}
+                onPress={() => toggleFilter('out_of_stock')}
+              />
             </View>
 
             {/* Search */}
@@ -89,7 +103,7 @@ export default function InventoryScreen() {
                 <Text style={styles.searchIcon}>🔍</Text>
                 <TextInput
                   style={[styles.searchInput, { color: colors.black }]}
-                  placeholder="Rechercher par nom, SKU, code-barres…"
+                  placeholder="Rechercher par nom, code-barres…"
                   placeholderTextColor={colors.gray400}
                   value={search}
                   onChangeText={setSearch}
@@ -102,37 +116,6 @@ export default function InventoryScreen() {
                 )}
               </View>
             </View>
-
-            {/* Category filters */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.filterList}
-            >
-              {CATEGORIES.map(cat => {
-                const isActive = activeCategory === cat.key;
-                return (
-                  <TouchableOpacity
-                    key={cat.key}
-                    style={[
-                      styles.filterChip,
-                      { backgroundColor: colors.surface, borderColor: colors.border },
-                      isActive && { backgroundColor: colors.primary, borderColor: colors.primary },
-                    ]}
-                    onPress={() => setActiveCategory(cat.key)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[
-                      styles.filterLabel,
-                      { color: colors.gray600 },
-                      isActive && { color: '#fff' },
-                    ]}>
-                      {cat.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
 
             {/* Result count */}
             <View style={styles.resultHeader}>
@@ -151,6 +134,14 @@ export default function InventoryScreen() {
         }
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
       />
     </SafeAreaView>
   );
@@ -186,10 +177,6 @@ const styles = StyleSheet.create({
   searchIcon: { fontSize: 16 },
   searchInput: { flex: 1, ...Typography.body, padding: 0 },
   clearBtn: { fontSize: 14, paddingHorizontal: 4 },
-
-  filterList: { paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, gap: Spacing.sm },
-  filterChip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: Radius.full, borderWidth: 1.5 },
-  filterLabel: { ...Typography.bodySmall, fontWeight: '600' },
 
   resultHeader: { paddingHorizontal: Spacing.md, paddingBottom: Spacing.sm, paddingTop: 4 },
   resultCount: { ...Typography.caption, textTransform: 'uppercase', letterSpacing: 0.5 },

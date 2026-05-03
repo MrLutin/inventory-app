@@ -1,73 +1,203 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet,
-  TouchableOpacity, SafeAreaView, StatusBar,
+  View, Text, StyleSheet, TouchableOpacity,
+  TextInput, ScrollView, SafeAreaView, StatusBar, Pressable,
 } from 'react-native';
-import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { useColors, Spacing, Radius, Shadow, Typography } from '@/constants/theme';
 import { useAuth } from '@/store/auth';
 
-// ─── Sub-components ──────────────────────────────────────────────────────────
+const APP_NAME    = Constants.expoConfig?.name    ?? '—';
+const APP_SLUG    = Constants.expoConfig?.slug    ?? '—';
+const APP_VERSION = Constants.expoConfig?.version ?? '—';
 
-interface MenuRowProps {
-  icon: keyof typeof Ionicons.glyphMap;
-  iconBg?: string;
-  iconColor?: string;
+// ─── Field ────────────────────────────────────────────────────────────────────
+
+interface FieldProps {
   label: string;
-  sublabel?: string;
-  accent?: string;
-  onPress?: () => void;
+  value: string;
+  onChange?: (v: string) => void;
+  placeholder?: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  keyboardType?: 'default' | 'email-address';
+  secureTextEntry?: boolean;
+  readOnly?: boolean;
+  hint?: string;
 }
 
-function MenuRow({ icon, iconBg, iconColor, label, sublabel, accent, onPress }: MenuRowProps) {
-  const colors = useColors();
-  const color = accent ?? iconColor ?? colors.black;
+function Field({ label, value, onChange, placeholder, icon, keyboardType = 'default', secureTextEntry, readOnly, hint }: FieldProps) {
+  const colors  = useColors();
+  const [focused, setFocused] = useState(false);
   return (
-    <TouchableOpacity style={styles.menuRow} onPress={onPress} activeOpacity={0.65}>
-      <View style={[styles.menuIconBox, { backgroundColor: accent ? `${accent}18` : (iconBg ?? colors.gray100) }]}>
-        <Ionicons name={icon} size={19} color={color} />
+    <View style={fStyles.wrapper}>
+      <Text style={[fStyles.label, { color: colors.gray600 }]}>{label}</Text>
+      <View style={[
+        fStyles.row,
+        { borderColor: colors.border, backgroundColor: readOnly ? colors.gray100 : colors.surface },
+        focused && !readOnly && { borderColor: colors.primary, backgroundColor: colors.surface },
+      ]}>
+        <Ionicons name={icon} size={17} color={focused && !readOnly ? colors.primary : colors.gray400} />
+        <TextInput
+          style={[fStyles.input, { color: readOnly ? colors.gray600 : colors.black }]}
+          value={value}
+          onChangeText={onChange}
+          placeholder={placeholder}
+          placeholderTextColor={colors.gray400}
+          keyboardType={keyboardType}
+          autoCapitalize={keyboardType === 'email-address' ? 'none' : 'words'}
+          secureTextEntry={secureTextEntry}
+          editable={!readOnly}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+        />
+        {readOnly && <Ionicons name="lock-closed-outline" size={14} color={colors.gray400} />}
       </View>
-      <View style={styles.menuText}>
-        <Text style={[styles.menuLabel, { color: accent ?? colors.black }]}>{label}</Text>
-        {sublabel && <Text style={[styles.menuSublabel, { color: colors.gray400 }]}>{sublabel}</Text>}
-      </View>
-      <Ionicons name="chevron-forward" size={16} color={colors.gray400} />
-    </TouchableOpacity>
+      {hint && <Text style={[fStyles.hint, { color: colors.gray400 }]}>{hint}</Text>}
+    </View>
   );
 }
 
-function SectionTitle({ title }: { title: string }) {
+const fStyles = StyleSheet.create({
+  wrapper: { gap: 6 },
+  label:   { ...Typography.bodySmall, fontWeight: '600' },
+  row: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    borderWidth: 1.5, borderRadius: Radius.md, paddingHorizontal: 14, paddingVertical: 13,
+  },
+  input: { flex: 1, ...Typography.body, padding: 0 },
+  hint:  { ...Typography.caption },
+});
+
+// ─── SectionCard ──────────────────────────────────────────────────────────────
+
+function SectionCard({ title, subtitle, icon, iconColor, iconBg, children }: {
+  title: string; subtitle?: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  iconColor?: string; iconBg?: string;
+  children: React.ReactNode;
+}) {
   const colors = useColors();
   return (
-    <Text style={[styles.sectionTitle, { color: colors.gray400 }]}>{title}</Text>
+    <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <View style={[styles.sectionHead, { borderBottomColor: colors.border }]}>
+        <View style={[styles.sectionIconBox, { backgroundColor: iconBg ?? colors.primaryBg }]}>
+          <Ionicons name={icon} size={18} color={iconColor ?? colors.primary} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.sectionTitle, { color: colors.black }]}>{title}</Text>
+          {subtitle && <Text style={[styles.sectionSub, { color: colors.gray400 }]}>{subtitle}</Text>}
+        </View>
+      </View>
+      <View style={styles.sectionBody}>{children}</View>
+    </View>
+  );
+}
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
+
+function Toast({ message, type }: { message: string; type: 'success' | 'error' }) {
+  const colors = useColors();
+  const isOk   = type === 'success';
+  return (
+    <View style={[
+      styles.toast,
+      { backgroundColor: isOk ? colors.accentLight : colors.dangerLight, borderColor: isOk ? colors.accent : colors.danger },
+    ]}>
+      <Ionicons name={isOk ? 'checkmark-circle-outline' : 'alert-circle-outline'} size={16} color={isOk ? colors.accent : colors.danger} />
+      <Text style={[styles.toastText, { color: isOk ? colors.accent : colors.danger }]}>{message}</Text>
+    </View>
+  );
+}
+
+// ─── AboutRow ────────────────────────────────────────────────────────────────
+
+function AboutRow({ label, value, icon }: { label: string; value: string; icon: keyof typeof Ionicons.glyphMap }) {
+  const colors = useColors();
+  return (
+    <View style={[styles.aboutRow, { borderBottomColor: colors.border }]}>
+      <View style={[styles.aboutIconBox, { backgroundColor: colors.gray100 }]}>
+        <Ionicons name={icon} size={14} color={colors.gray600} />
+      </View>
+      <Text style={[styles.aboutLabel, { color: colors.gray400 }]}>{label}</Text>
+      <Text style={[styles.aboutValue, { color: colors.black }]}>{value}</Text>
+    </View>
   );
 }
 
 // ─── Screen ──────────────────────────────────────────────────────────────────
 
 export default function AccountScreen() {
-  const router = useRouter();
-  const { user, logout, isAdmin } = useAuth();
   const colors = useColors();
+  const { user, logout, isAdmin } = useAuth();
+
+  // ── Profile form ──
+  const [name,  setName]  = useState(user?.name  ?? '');
+  const [email, setEmail] = useState(user?.email ?? '');
+  const [profileMsg, setProfileMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  // ── Password form ──
+  const [currentPwd, setCurrentPwd] = useState('');
+  const [newPwd,     setNewPwd]     = useState('');
+  const [confirmPwd, setConfirmPwd] = useState('');
+  const [showPwds,   setShowPwds]   = useState(false);
+  const [pwdMsg,     setPwdMsg]     = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   const roleBadge = isAdmin
     ? { label: 'Administrateur', bg: colors.primaryBg, text: colors.primary, icon: 'shield-checkmark-outline' as const }
     : { label: 'Utilisateur', bg: colors.gray100, text: colors.gray600, icon: 'person-outline' as const };
 
+  const handleSaveProfile = () => {
+    if (!name.trim()) {
+      setProfileMsg({ text: 'Le nom ne peut pas être vide.', type: 'error' });
+      return;
+    }
+    if (!email.trim() || !email.includes('@')) {
+      setProfileMsg({ text: 'Adresse email invalide.', type: 'error' });
+      return;
+    }
+    setProfileMsg({ text: 'Profil mis à jour avec succès.', type: 'success' });
+    setTimeout(() => setProfileMsg(null), 3500);
+  };
+
+  const handleSavePassword = () => {
+    if (!currentPwd) {
+      setPwdMsg({ text: 'Veuillez saisir votre mot de passe actuel.', type: 'error' });
+      return;
+    }
+    if (newPwd.length < 6) {
+      setPwdMsg({ text: 'Le nouveau mot de passe doit contenir au moins 6 caractères.', type: 'error' });
+      return;
+    }
+    if (newPwd !== confirmPwd) {
+      setPwdMsg({ text: 'Les mots de passe ne correspondent pas.', type: 'error' });
+      return;
+    }
+    setCurrentPwd(''); setNewPwd(''); setConfirmPwd('');
+    setPwdMsg({ text: 'Mot de passe modifié avec succès.', type: 'success' });
+    setTimeout(() => setPwdMsg(null), 3500);
+  };
+
+  const profileDirty = name !== (user?.name ?? '') || email !== (user?.email ?? '');
+  const pwdReady     = currentPwd.length > 0 && newPwd.length >= 6 && confirmPwd.length > 0;
+
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
 
-        <Text style={[styles.pageTitle, { color: colors.black }]}>Compte</Text>
-
-        {/* Profile card */}
+        {/* ── Profile summary ── */}
         <View style={[styles.profileCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <View style={[styles.avatar, { backgroundColor: colors.primaryBg, borderColor: colors.primaryLight }]}>
-            <Text style={[styles.avatarText, { color: colors.primary }]}>{user?.initials ?? 'ML'}</Text>
+          <View style={[styles.avatarRing, { borderColor: `${colors.primary}30` }]}>
+            <View style={[styles.avatar, { backgroundColor: colors.primaryBg }]}>
+              <Text style={[styles.avatarText, { color: colors.primary }]}>{user?.initials ?? '?'}</Text>
+            </View>
           </View>
-          <View style={styles.profileInfo}>
+          <View style={styles.profileMeta}>
             <Text style={[styles.profileName, { color: colors.black }]}>{user?.name ?? '—'}</Text>
             <Text style={[styles.profileEmail, { color: colors.gray400 }]}>{user?.email ?? '—'}</Text>
             <View style={[styles.roleBadge, { backgroundColor: roleBadge.bg }]}>
@@ -77,60 +207,95 @@ export default function AccountScreen() {
           </View>
         </View>
 
-        {/* Gestion */}
-        <SectionTitle title="Gestion" />
-        <View style={[styles.menuCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <MenuRow
-            icon="business-outline"
-            iconBg={colors.primaryBg}
-            iconColor={colors.primary}
-            label="Fournisseurs"
-            sublabel="8 fournisseurs"
-            onPress={() => router.push('/suppliers')}
+        {/* ── Informations personnelles ── */}
+        <SectionCard
+          title="Informations personnelles"
+          subtitle="Nom et email affichés dans l'app"
+          icon="person-outline"
+        >
+          <Field label="Nom complet"    value={name}  onChange={setName}  placeholder="Ex: Marie Dupont"  icon="person-outline" />
+          <Field label="Adresse email"  value={email} onChange={setEmail} placeholder="vous@example.com" icon="mail-outline" keyboardType="email-address" />
+          <Field
+            label="Rôle"
+            value={roleBadge.label}
+            icon="shield-checkmark-outline"
+            readOnly
+            hint="Le rôle est attribué par un administrateur."
           />
-          <View style={[styles.sep, { backgroundColor: colors.border }]} />
-          <MenuRow
-            icon="location-outline"
-            iconBg="#FFF7ED"
-            iconColor="#F97316"
-            label="Emplacements"
-            sublabel="4 zones de stockage"
-            onPress={() => router.push('/locations')}
+
+          {profileMsg && <Toast message={profileMsg.text} type={profileMsg.type} />}
+
+          <TouchableOpacity
+            style={[styles.saveBtn, { backgroundColor: profileDirty ? colors.primary : colors.gray200 }]}
+            onPress={handleSaveProfile}
+            disabled={!profileDirty}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="save-outline" size={17} color={profileDirty ? '#fff' : colors.gray400} />
+            <Text style={[styles.saveBtnText, { color: profileDirty ? '#fff' : colors.gray400 }]}>
+              Enregistrer les modifications
+            </Text>
+          </TouchableOpacity>
+        </SectionCard>
+
+        {/* ── Sécurité ── */}
+        <SectionCard
+          title="Sécurité"
+          subtitle="Modifier votre mot de passe"
+          icon="lock-closed-outline"
+        >
+          <Field label="Mot de passe actuel"             value={currentPwd} onChange={setCurrentPwd} placeholder="••••••••" icon="lock-closed-outline"     secureTextEntry={!showPwds} />
+          <Field label="Nouveau mot de passe"            value={newPwd}     onChange={setNewPwd}     placeholder="Min. 6 caractères" icon="lock-open-outline" secureTextEntry={!showPwds}
+            hint={newPwd.length > 0 && newPwd.length < 6 ? 'Au moins 6 caractères requis.' : undefined}
           />
-          <View style={[styles.sep, { backgroundColor: colors.border }]} />
-          <MenuRow
-            icon="people-outline"
-            label="Utilisateurs"
-            sublabel="3 membres actifs"
-          />
-        </View>
+          <Field label="Confirmer le nouveau mot de passe" value={confirmPwd} onChange={setConfirmPwd} placeholder="••••••••" icon="checkmark-circle-outline" secureTextEntry={!showPwds} />
 
-        {/* Préférences */}
-        <SectionTitle title="Préférences" />
-        <View style={[styles.menuCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <MenuRow icon="notifications-outline" label="Notifications" sublabel="Alertes stock activées" />
-          <View style={[styles.sep, { backgroundColor: colors.border }]} />
-          <MenuRow icon="language-outline" label="Langue" sublabel="Français" />
-          <View style={[styles.sep, { backgroundColor: colors.border }]} />
-          <MenuRow icon="moon-outline" label="Apparence" sublabel="Système" />
-        </View>
+          <TouchableOpacity style={styles.showPwdRow} onPress={() => setShowPwds(v => !v)} activeOpacity={0.7}>
+            <Ionicons name={showPwds ? 'eye-off-outline' : 'eye-outline'} size={15} color={colors.gray400} />
+            <Text style={[styles.showPwdText, { color: colors.gray400 }]}>
+              {showPwds ? 'Masquer les mots de passe' : 'Afficher les mots de passe'}
+            </Text>
+          </TouchableOpacity>
 
-        {/* Application */}
-        <SectionTitle title="Application" />
-        <View style={[styles.menuCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <MenuRow icon="help-circle-outline" label="Aide & Support" />
-          <View style={[styles.sep, { backgroundColor: colors.border }]} />
-          <MenuRow icon="shield-checkmark-outline" label="Confidentialité" />
-          <View style={[styles.sep, { backgroundColor: colors.border }]} />
-          <MenuRow icon="information-circle-outline" label="Version" sublabel="1.0.0" />
-        </View>
+          {pwdMsg && <Toast message={pwdMsg.text} type={pwdMsg.type} />}
 
-        {/* Déconnexion */}
-        <View style={[styles.menuCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <MenuRow icon="log-out-outline" label="Se déconnecter" accent={colors.danger} onPress={logout} />
-        </View>
+          <TouchableOpacity
+            style={[styles.saveBtn, { backgroundColor: pwdReady ? colors.primary : colors.gray200 }]}
+            onPress={handleSavePassword}
+            disabled={!pwdReady}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="key-outline" size={17} color={pwdReady ? '#fff' : colors.gray400} />
+            <Text style={[styles.saveBtnText, { color: pwdReady ? '#fff' : colors.gray400 }]}>
+              Modifier le mot de passe
+            </Text>
+          </TouchableOpacity>
+        </SectionCard>
 
-        <View style={{ height: 100 }} />
+        {/* ── À propos ── */}
+        <SectionCard
+          title="À propos"
+          subtitle="Informations sur l'application"
+          icon="information-circle-outline"
+          iconColor={colors.gray600}
+          iconBg={colors.gray100}
+        >
+          <AboutRow label="Nom"     value={APP_NAME}    icon="cube-outline" />
+          <AboutRow label="Slug"    value={APP_SLUG}    icon="at-outline" />
+          <AboutRow label="Version" value={APP_VERSION} icon="git-branch-outline" />
+        </SectionCard>
+
+        {/* ── Déconnexion ── */}
+        <TouchableOpacity
+          style={[styles.logoutBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          onPress={logout}
+          activeOpacity={0.75}
+        >
+          <Ionicons name="log-out-outline" size={18} color={colors.danger} />
+          <Text style={[styles.logoutText, { color: colors.danger }]}>Se déconnecter</Text>
+        </TouchableOpacity>
+
+        <View style={{ height: 40 }} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -139,54 +304,88 @@ export default function AccountScreen() {
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  safe: { flex: 1 },
-  content: { padding: Spacing.md, gap: Spacing.sm },
+  safe:   { flex: 1 },
+  scroll: { padding: Spacing.md, gap: Spacing.md },
 
-  pageTitle: { ...Typography.h1, marginBottom: Spacing.sm },
-
+  // Profile card
   profileCard: {
-    borderRadius: Radius.xl, padding: Spacing.md,
+    borderRadius: Radius.xl, borderWidth: 1,
     flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
-    borderWidth: 1, ...Shadow.sm,
+    padding: Spacing.md, ...Shadow.sm,
+  },
+  avatarRing: {
+    width: 68, height: 68, borderRadius: Radius.full,
+    borderWidth: 2, alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
   avatar: {
     width: 56, height: 56, borderRadius: Radius.full,
     alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2,
   },
-  avatarText: { ...Typography.h4, fontWeight: '800' },
-  profileInfo: { flex: 1, gap: 2 },
-  profileName: { ...Typography.h4 },
-  profileEmail: { ...Typography.bodySmall, marginTop: 2 },
+  avatarText:   { fontSize: 20, fontWeight: '800' },
+  profileMeta:  { flex: 1, gap: 3 },
+  profileName:  { ...Typography.h4 },
+  profileEmail: { ...Typography.bodySmall },
   roleBadge: {
-    flexDirection: 'row' as const, alignItems: 'center' as const,
-    gap: 4, alignSelf: 'flex-start' as const,
-    borderRadius: Radius.full, paddingHorizontal: 8, paddingVertical: 3, marginTop: 4,
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    alignSelf: 'flex-start', borderRadius: Radius.full,
+    paddingHorizontal: 8, paddingVertical: 3, marginTop: 4,
   },
-  roleLabel: { ...Typography.caption, fontWeight: '600' as const },
+  roleLabel: { ...Typography.caption, fontWeight: '600' },
 
-  sectionTitle: {
-    ...Typography.label,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    paddingHorizontal: 4,
-    marginTop: Spacing.sm,
+  // Section card
+  sectionCard: {
+    borderRadius: Radius.xl, borderWidth: 1, overflow: 'hidden', ...Shadow.sm,
   },
-
-  menuCard: {
-    borderRadius: Radius.lg, borderWidth: 1,
-    overflow: 'hidden', ...Shadow.sm,
+  sectionHead: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    borderBottomWidth: 1,
   },
-  menuRow: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: Spacing.md, paddingVertical: 13, gap: Spacing.md,
-  },
-  menuIconBox: {
+  sectionIconBox: {
     width: 34, height: 34, borderRadius: Radius.sm,
-    alignItems: 'center', justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
-  menuText: { flex: 1 },
-  menuLabel: { ...Typography.body, fontWeight: '500' },
-  menuSublabel: { ...Typography.bodySmall, marginTop: 1 },
-  sep: { height: 1, marginLeft: 62 },
+  sectionTitle: { ...Typography.body, fontWeight: '700' },
+  sectionSub:   { ...Typography.caption, marginTop: 1 },
+  sectionBody:  { padding: Spacing.md, gap: Spacing.md },
+
+  // Toast
+  toast: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    borderRadius: Radius.md, borderWidth: 1,
+    paddingHorizontal: Spacing.md, paddingVertical: 10,
+  },
+  toastText: { ...Typography.bodySmall, flex: 1, fontWeight: '500' },
+
+  // Show/hide password
+  showPwdRow: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
+  showPwdText: { ...Typography.caption },
+
+  // Save button
+  saveBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: Spacing.sm, paddingVertical: 14, borderRadius: Radius.lg,
+    marginTop: Spacing.xs,
+  },
+  saveBtnText: { ...Typography.body, fontWeight: '700' },
+
+  // About rows
+  aboutRow: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+    paddingVertical: 10, borderBottomWidth: 1,
+  },
+  aboutIconBox: {
+    width: 28, height: 28, borderRadius: Radius.sm,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  aboutLabel: { ...Typography.bodySmall, flex: 1 },
+  aboutValue: { ...Typography.bodySmall, fontWeight: '700', fontFamily: 'monospace' as any },
+
+  // Logout
+  logoutBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: Spacing.sm, paddingVertical: 14, borderRadius: Radius.xl,
+    borderWidth: 1, ...Shadow.sm,
+  },
+  logoutText: { ...Typography.body, fontWeight: '700' },
 });

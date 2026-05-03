@@ -1,5 +1,6 @@
 {
   "name": "inventory",
+  "slug" : "Capreit Inventory",
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {

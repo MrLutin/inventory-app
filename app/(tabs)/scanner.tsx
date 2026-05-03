@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  SafeAreaView, StatusBar, Animated, Modal, ScrollView,
+  SafeAreaView, StatusBar, Animated, Modal, ScrollView, Image,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
-import { MOCK_ITEMS, InventoryItem, getStockStatus } from '@/constants/data';
+import { Ionicons } from '@expo/vector-icons';
+import { InventoryItem, getStockStatus } from '@/constants/data';
+import { useInventory } from '@/store/inventory';
+import { getImageUrl } from '@/lib/directusClient';
 import { useColors, Spacing, Radius, Typography, Shadow } from '@/constants/theme';
 import StockBadge from '@/components/StockBadge';
 import CategoryBadge from '@/components/CategoryBadge';
@@ -20,6 +23,7 @@ const CORNER_THICKNESS = 4;
 export default function ScannerScreen() {
   const router = useRouter();
   const colors = useColors();
+  const { items } = useInventory();
   const [permission, requestPermission] = useCameraPermissions();
   const [scanState, setScanState] = useState<ScanState>('scanning');
   const [foundItem, setFoundItem] = useState<InventoryItem | null>(null);
@@ -43,7 +47,7 @@ export default function ScannerScreen() {
     scanLock.current = true;
     setLastBarcode(data);
 
-    const item = MOCK_ITEMS.find(i => i.barcode === data || i.sku === data);
+    const item = items.find(i => i.barcode === data || i.sku === data);
     if (item) {
       setFoundItem(item);
       setScanState('found');
@@ -188,7 +192,10 @@ export default function ScannerScreen() {
 
                 <View style={styles.sheetHeader}>
                   <View style={[styles.sheetEmoji, { backgroundColor: colors.gray100 }]}>
-                    <Text style={styles.sheetEmojiText}>{foundItem.imageEmoji}</Text>
+                    {getImageUrl(foundItem.image)
+                      ? <Image source={{ uri: getImageUrl(foundItem.image)! }} style={styles.sheetImage} resizeMode="cover" />
+                      : <Ionicons name="image-outline" size={26} color={colors.gray400} />
+                    }
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.sheetName, { color: colors.black }]}>{foundItem.name}</Text>
@@ -201,7 +208,7 @@ export default function ScannerScreen() {
 
                 <View style={styles.badgesRow}>
                   <StockBadge status={getStockStatus(foundItem)} />
-                  <CategoryBadge category={foundItem.category} />
+                  <CategoryBadge category={foundItem.category} color={foundItem.categoryColor} />
                 </View>
 
                 <View style={[styles.quickStats, { backgroundColor: colors.gray50, borderColor: colors.border }]}>
@@ -211,12 +218,12 @@ export default function ScannerScreen() {
                   </View>
                   <View style={[styles.divider, { backgroundColor: colors.border }]} />
                   <View style={styles.quickStat}>
-                    <Text style={[styles.quickStatValue, { color: colors.black }]}>{foundItem.price.toFixed(2)} €</Text>
+                    <Text style={[styles.quickStatValue, { color: colors.black }]}>{foundItem.price.toFixed(2)} $</Text>
                     <Text style={[styles.quickStatLabel, { color: colors.gray400 }]}>Prix unitaire</Text>
                   </View>
                   <View style={[styles.divider, { backgroundColor: colors.border }]} />
                   <View style={styles.quickStat}>
-                    <Text style={[styles.quickStatValue, { color: colors.black }]}>{foundItem.location}</Text>
+                    <Text style={[styles.quickStatValue, { color: colors.black }]}>{foundItem.locations.map(l => l.name).join(', ') || '—'}</Text>
                     <Text style={[styles.quickStatLabel, { color: colors.gray400 }]}>Emplacement</Text>
                   </View>
                 </View>
@@ -327,8 +334,8 @@ const styles = StyleSheet.create({
     alignSelf: 'center', marginTop: 12, marginBottom: Spacing.md,
   },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginBottom: Spacing.md },
-  sheetEmoji: { width: 56, height: 56, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
-  sheetEmojiText: { fontSize: 28 },
+  sheetEmoji: { width: 56, height: 56, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  sheetImage: { width: 56, height: 56 },
   sheetName: { ...Typography.h3 },
   sheetSku: { ...Typography.bodySmall, marginTop: 2 },
   closeBtn: { width: 32, height: 32, borderRadius: Radius.full, alignItems: 'center', justifyContent: 'center' },

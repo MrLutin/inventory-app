@@ -1,5 +1,14 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  directusLogin,
+  directusLogout,
+  loadStoredTokens,
+  hasSession,
+  getValidToken,
+  clearTokens,
+  apiGetMe,
+} from '@/lib/directusClient';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -16,16 +25,20 @@ export interface User {
 interface AuthCtx {
   user: User | null;
   loading: boolean;
+  isOfflineAuth: boolean;   // true = logged-in from local cache, server unreachable
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   isAdmin: boolean;
 }
 
-// ─── Test accounts ────────────────────────────────────────────────────────────
+// ─── Fallback accounts (used when Directus is unreachable) ───────────────────
+//
+// These mirror the test accounts created in Directus.
+// Remove or empty this array once the server is reliably online.
 
-const ACCOUNTS: Array<User & { password: string }> = [
+const FALLBACK_ACCOUNTS: Array<User & { password: string }> = [
   {
-    id: '1',
+    id: 'local-1',
     name: 'Admin MrLutin',
     email: 'admin@mrlutin.dev',
     password: 'admin123',
@@ -33,7 +46,7 @@ const ACCOUNTS: Array<User & { password: string }> = [
     initials: 'AM',
   },
   {
-    id: '2',
+    id: 'local-2',
     name: 'Utilisateur Test',
     email: 'user@mrlutin.dev',
     password: 'user123',
@@ -42,45 +55,163 @@ const ACCOUNTS: Array<User & { password: string }> = [
   },
 ];
 
-const STORAGE_KEY = '@inventory_user';
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-// ─── Context ──────────────────────────────────────────────────────────────────
+const STORAGE_KEY      = '@inventory_user';
+const STORAGE_OFFLINE  = '@inventory_offline_auth';
+
+function buildInitials(name: string): string {
+  return name.split(' ').map(w => w[0] ?? '').slice(0, 2).join('').toUpperCase();
+}
+
+function detectRole(role: import('@/lib/directusClient').DirectusUser['role']): Role {
+  if (!role) return 'user';
+  // Plain UUID string → Directus couldn't expand the role (no permission on directus_roles)
+  // This only happens for non-admin users, so we safely return 'user'.
+  if (typeof role === 'string') return 'user';
+  // Nested object: detect admin by role name
+  if (role.name?.toLowerCase().includes('admin')) return 'admin';
+  return 'user';
+}
+
+function buildUser(du: import('@/lib/directusClient').DirectusUser): User {
+  // Safely handle null first_name / last_name from Directus
+  const name = [du.first_name, du.last_name].filter(Boolean).join(' ') || du.email;
+  return {
+    id:       du.id,
+    name,
+    email:    du.email,
+    role:     detectRole(du.role),
+    initials: buildInitials(name),
+  };
+}
+
+function isNetworkError(message: string): boolean {
+  return (
+    message.includes('Network request failed') ||
+    message.includes('Failed to fetch') ||
+    message.includes('fetch') ||
+    message.includes('ECONNREFUSED') ||
+    message.includes('Network') ||
+    message.includes('connect')
+  );
+}
+
+async function persistUser(user: User, offline: boolean) {
+  await AsyncStorage.setItem(STORAGE_KEY,     JSON.stringify(user));
+  await AsyncStorage.setItem(STORAGE_OFFLINE, JSON.stringify(offline));
+}
+
+// ─── Context ─────────────────────────────────────────────────────────────────
 
 const Ctx = createContext<AuthCtx | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser]       = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user,          setUser]          = useState<User | null>(null);
+  const [loading,       setLoading]       = useState(true);
+  const [isOfflineAuth, setIsOfflineAuth] = useState(false);
 
-  // Restore session on mount
+  // ── Restore session on mount ──────────────────────────────────────────────
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY)
-      .then(raw => {
-        if (raw) setUser(JSON.parse(raw));
-      })
-      .finally(() => setLoading(false));
+    (async () => {
+      try {
+        await loadStoredTokens();
+
+        // Try to get a valid Directus token and refresh profile
+        if (hasSession()) {
+          const token = await getValidToken();
+          if (token) {
+            try {
+              // Always re-fetch profile from Directus to get latest info
+              const du      = await apiGetMe();
+              const appUser = buildUser(du);
+              await persistUser(appUser, false);
+              setUser(appUser);
+              setIsOfflineAuth(false);
+              setLoading(false);
+              return;
+            } catch {
+              // Server reachable but profile fetch failed — fall through to cache
+            }
+          }
+        }
+
+        // Directus unreachable — restore from cached user (offline mode)
+        const raw = await AsyncStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          setUser(JSON.parse(raw));
+          setIsOfflineAuth(true);
+        }
+      } catch {
+        // Silently fail — user stays logged out
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, []);
 
-  const login = async (email: string, password: string) => {
-    const account = ACCOUNTS.find(
-      a => a.email.toLowerCase() === email.toLowerCase().trim() && a.password === password
-    );
-    if (!account) {
-      return { success: false, error: 'Email ou mot de passe incorrect.' };
+  // ── Login ─────────────────────────────────────────────────────────────────
+  const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    const trimmedEmail = email.trim().toLowerCase();
+
+    // 1. Try Directus first
+    try {
+      const { user: du } = await directusLogin(trimmedEmail, password);
+
+      const appUser: User = buildUser(du);
+
+      await persistUser(appUser, false);
+      setIsOfflineAuth(false);
+      setUser(appUser);
+      return { success: true };
+
+    } catch (err: any) {
+      const message = String(err?.message ?? '');
+
+      // Wrong credentials (Directus is reachable but rejected the password)
+      if (!isNetworkError(message)) {
+        return {
+          success: false,
+          error: 'Email ou mot de passe incorrect.',
+        };
+      }
+
+      // 2. Server unreachable — try fallback accounts
+      const fallback = FALLBACK_ACCOUNTS.find(
+        a => a.email.toLowerCase() === trimmedEmail && a.password === password
+      );
+
+      if (fallback) {
+        const { password: _, ...appUser } = fallback;
+        await clearTokens();
+        await persistUser(appUser, true);
+        setIsOfflineAuth(true);
+        setUser(appUser);
+        return { success: true };
+      }
+
+      // Fallback accounts also didn't match
+      return {
+        success: false,
+        error: 'Serveur Directus injoignable. Vérifiez que votre VPS est démarré.',
+      };
     }
-    const { password: _, ...userData } = account;
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(userData));
-    setUser(userData);
-    return { success: true };
   };
 
+  // ── Logout ────────────────────────────────────────────────────────────────
   const logout = async () => {
-    await AsyncStorage.removeItem(STORAGE_KEY);
+    await directusLogout().catch(() => {}); // ignore if offline
+    await AsyncStorage.multiRemove([STORAGE_KEY, STORAGE_OFFLINE]);
+    setIsOfflineAuth(false);
     setUser(null);
   };
 
   return (
-    <Ctx.Provider value={{ user, loading, login, logout, isAdmin: user?.role === 'admin' }}>
+    <Ctx.Provider value={{
+      user, loading, isOfflineAuth,
+      login, logout,
+      isAdmin: user?.role === 'admin',
+    }}>
       {children}
     </Ctx.Provider>
   );
