@@ -24,4 +24,6 @@ export const DIRECTUS_URL  = 'https://directus.mrlutin.ovh';
 export const COLLECTION    = 'items';
 
 // Fields to request from Directus (comma-separated)
-export const ITEM_FIELDS   = 'id,name,sku,barcode,category,quantity,min_quantity,price,location,description,supplier,image_emoji,date_updated';
+// supplier  → Many-to-One  : supplier.id, supplier.name
+// locations → Many-to-Many : junction alias `locations`, related key `locations_id`
+export const ITEM_FIELDS   = 'id,name,sku,barcode,supplier_code,category.id,category.name,category.slug,category.color,min_quantity,price,description,image,date_updated,supplier.id,supplier.name,locations.id,locations.quantity,locations.locations_id.id,locations.locations_id.name,locations.locations_id.zone';

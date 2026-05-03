@@ -81,6 +81,7 @@ function AppLayout() {
       <Stack.Screen name="item/form"  options={{ headerShown: false, animation: Platform.OS === 'web' ? 'none' : 'slide_from_bottom' }} />
       <Stack.Screen name="suppliers"  options={{ headerShown: false, animation: Platform.OS === 'web' ? 'none' : 'slide_from_right' }} />
       <Stack.Screen name="locations"  options={{ headerShown: false, animation: Platform.OS === 'web' ? 'none' : 'slide_from_right' }} />
+      <Stack.Screen name="categories" options={{ headerShown: false, animation: Platform.OS === 'web' ? 'none' : 'slide_from_right' }} />
     </Stack>
   );
 

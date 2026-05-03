@@ -64,8 +64,14 @@ function buildInitials(name: string): string {
   return name.split(' ').map(w => w[0] ?? '').slice(0, 2).join('').toUpperCase();
 }
 
-function detectRole(roleName: string): Role {
-  return roleName.toLowerCase().includes('admin') ? 'admin' : 'user';
+function detectRole(role: import('@/lib/directusClient').DirectusUser['role']): Role {
+  if (!role) return 'user';
+  // Plain UUID string → Directus couldn't expand the role (no permission on directus_roles)
+  // This only happens for non-admin users, so we safely return 'user'.
+  if (typeof role === 'string') return 'user';
+  // Nested object: detect admin by role name
+  if (role.name?.toLowerCase().includes('admin')) return 'admin';
+  return 'user';
 }
 
 function buildUser(du: import('@/lib/directusClient').DirectusUser): User {
@@ -75,7 +81,7 @@ function buildUser(du: import('@/lib/directusClient').DirectusUser): User {
     id:       du.id,
     name,
     email:    du.email,
-    role:     detectRole(du.role?.name ?? ''),
+    role:     detectRole(du.role),
     initials: buildInitials(name),
   };
 }

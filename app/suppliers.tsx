@@ -1,37 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
   SafeAreaView, StatusBar, Modal, TextInput,
-  KeyboardAvoidingView, Platform, ScrollView, Alert,
+  KeyboardAvoidingView, Platform, ScrollView, Alert, ActivityIndicator, Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, useColors, Spacing, Radius, Shadow, Typography } from '@/constants/theme';
 import { useAuth } from '@/store/auth';
+import {
+  fetchSuppliers,
+  createSupplierDirectus,
+  updateSupplierDirectus,
+  deleteSupplierDirectus,
+  DirectusSupplierRef,
+  SupplierPayload,
+} from '@/lib/directusClient';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface Supplier {
-  id: string;
-  name: string;
-  contact: string;
-  email: string;
-  phone: string;
-  itemCount: number;
-}
-
-// ─── Data ─────────────────────────────────────────────────────────────────────
-
-const INITIAL_SUPPLIERS: Supplier[] = [
-  { id: '1', name: 'Apple France',   contact: 'apple.com',       email: 'pro@apple.fr',         phone: '+33 1 00 00 00 01', itemCount: 2 },
-  { id: '2', name: 'Bosch Pro',      contact: 'bosch-pro.fr',    email: 'contact@bosch-pro.fr', phone: '+33 1 00 00 00 02', itemCount: 1 },
-  { id: '3', name: 'EcoWear',        contact: 'ecowear.fr',      email: 'info@ecowear.fr',       phone: '+33 1 00 00 00 03', itemCount: 1 },
-  { id: '4', name: 'ErgoFlex Pro',   contact: 'ergoflex.fr',     email: 'pro@ergoflex.fr',       phone: '+33 1 00 00 00 04', itemCount: 1 },
-  { id: '5', name: 'FlexiDesk',      contact: 'flexidesk.com',   email: 'sales@flexidesk.com',   phone: '+33 1 00 00 00 05', itemCount: 1 },
-  { id: '6', name: 'Keychron',       contact: 'keychron.com',    email: 'support@keychron.com',  phone: '+33 1 00 00 00 06', itemCount: 1 },
-  { id: '7', name: 'LG Electronics', contact: 'lg.com/fr',       email: 'pro@lg.fr',             phone: '+33 1 00 00 00 07', itemCount: 1 },
-  { id: '8', name: 'Terres de Café', contact: 'terresdecafe.fr', email: 'pro@terresdecafe.fr',   phone: '+33 1 00 00 00 08', itemCount: 1 },
-];
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const PALETTE = [
   '#6366F1', '#10B981', '#F59E0B',
@@ -40,6 +26,48 @@ const PALETTE = [
 
 const initials = (name: string) =>
   name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+
+function getDomain(website: string | null | undefined): string | null {
+  if (!website) return null;
+  try {
+    const url = website.startsWith('http') ? website : `https://${website}`;
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return null;
+  }
+}
+
+type LogoStep = 'clearbit' | 'google' | 'initials';
+
+function SupplierLogo({ name, website, color }: { name: string; website?: string | null; color: string }) {
+  const [step, setStep] = useState<LogoStep>('clearbit');
+  const domain = getDomain(website);
+
+  const src =
+    domain && step === 'clearbit' ? `https://logo.clearbit.com/${domain}` :
+    domain && step === 'google'   ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` :
+    null;
+
+  const handleError = () => {
+    if (step === 'clearbit') setStep('google');
+    else setStep('initials');
+  };
+
+  return (
+    <View style={[styles.avatar, { backgroundColor: `${color}18` }]}>
+      {src ? (
+        <Image
+          source={{ uri: src }}
+          style={step === 'google' ? styles.logoFavicon : styles.logoImage}
+          resizeMode="contain"
+          onError={handleError}
+        />
+      ) : (
+        <Text style={[styles.avatarText, { color }]}>{initials(name)}</Text>
+      )}
+    </View>
+  );
+}
 
 // ─── Field ────────────────────────────────────────────────────────────────────
 
@@ -99,50 +127,67 @@ export default function SuppliersScreen() {
   const router = useRouter();
   const { isAdmin } = useAuth();
   const colors = useColors();
-  const [suppliers, setSuppliers] = useState<Supplier[]>(INITIAL_SUPPLIERS);
+  const [suppliers, setSuppliers] = useState<DirectusSupplierRef[]>([]);
+  const [loading,   setLoading]   = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [selected,  setSelected]  = useState<Supplier | null>(null);
+  const [selected,  setSelected]  = useState<DirectusSupplierRef | null>(null);
 
   const [name,    setName]    = useState('');
-  const [contact, setContact] = useState('');
+  const [website, setWebsite] = useState('');
   const [email,   setEmail]   = useState('');
   const [phone,   setPhone]   = useState('');
 
   const isEdit = selected !== null;
 
+  const loadSuppliers = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await fetchSuppliers();
+      setSuppliers(data);
+    } catch (err: any) {
+      Alert.alert('Erreur', err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadSuppliers(); }, [loadSuppliers]);
+
   const openAdd = () => {
     setSelected(null);
-    setName(''); setContact(''); setEmail(''); setPhone('');
+    setName(''); setWebsite(''); setEmail(''); setPhone('');
     setShowModal(true);
   };
 
-  const openEdit = (supplier: Supplier) => {
+  const openEdit = (supplier: DirectusSupplierRef) => {
     setSelected(supplier);
     setName(supplier.name);
-    setContact(supplier.contact);
-    setEmail(supplier.email);
-    setPhone(supplier.phone);
+    setWebsite(supplier.website ?? '');
+    setEmail(supplier.email ?? '');
+    setPhone(supplier.phone ?? '');
     setShowModal(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!name.trim()) {
       Alert.alert('Champ requis', 'Le nom du fournisseur est obligatoire.');
       return;
     }
-    if (isEdit) {
-      setSuppliers(prev => prev.map(s =>
-        s.id === selected.id
-          ? { ...s, name: name.trim(), contact: contact.trim(), email: email.trim(), phone: phone.trim() }
-          : s
-      ));
-    } else {
-      setSuppliers(prev => [
-        { id: Date.now().toString(), name: name.trim(), contact: contact.trim(), email: email.trim(), phone: phone.trim(), itemCount: 0 },
-        ...prev,
-      ]);
+    try {
+      const payload: SupplierPayload = { name: name.trim() };
+      if (website.trim()) payload.website = website.trim();
+      if (email.trim())   payload.email   = email.trim();
+      if (phone.trim())   payload.phone   = phone.trim();
+      if (isEdit) {
+        await updateSupplierDirectus(String(selected.id), payload);
+      } else {
+        await createSupplierDirectus(payload);
+      }
+      setShowModal(false);
+      await loadSuppliers();
+    } catch (err: any) {
+      Alert.alert('Erreur', err.message);
     }
-    setShowModal(false);
   };
 
   const handleDelete = () => {
@@ -152,9 +197,14 @@ export default function SuppliersScreen() {
       `Voulez-vous vraiment supprimer "${selected.name}" ?`,
       [
         { text: 'Annuler', style: 'cancel' },
-        { text: 'Supprimer', style: 'destructive', onPress: () => {
-          setSuppliers(prev => prev.filter(s => s.id !== selected.id));
-          setShowModal(false);
+        { text: 'Supprimer', style: 'destructive', onPress: async () => {
+          try {
+            await deleteSupplierDirectus(String(selected.id));
+            setShowModal(false);
+            await loadSuppliers();
+          } catch (err: any) {
+            Alert.alert('Erreur', err.message);
+          }
         }},
       ]
     );
@@ -177,57 +227,63 @@ export default function SuppliersScreen() {
         )}
       </View>
 
-      {/* List */}
-      <FlatList
-        data={suppliers}
-        keyExtractor={item => item.id}
-        contentContainerStyle={styles.list}
-        showsVerticalScrollIndicator={false}
-        ListHeaderComponent={
-          <Text style={[styles.count, { color: colors.gray400 }]}>
-            {suppliers.length} fournisseur{suppliers.length > 1 ? 's' : ''}
-          </Text>
-        }
-        renderItem={({ item, index }) => {
-          const color = PALETTE[index % PALETTE.length];
-          return (
-            <TouchableOpacity
-              style={[styles.card, { backgroundColor: colors.surface }]}
-              activeOpacity={0.75}
-              onPress={() => openEdit(item)}
-            >
-              <View style={[styles.avatar, { backgroundColor: `${color}18` }]}>
-                <Text style={[styles.avatarText, { color }]}>{initials(item.name)}</Text>
-              </View>
-              <View style={styles.cardContent}>
-                <Text style={[styles.cardName, { color: colors.black }]}>{item.name}</Text>
-                <Text style={[styles.cardContact, { color: colors.gray600 }]}>{item.contact || '—'}</Text>
-                <Text style={[styles.cardEmail, { color: colors.gray400 }]}>{item.email || '—'}</Text>
-              </View>
-              <View style={styles.right}>
-                <View style={[styles.badge, { backgroundColor: `${color}18` }]}>
-                  <Text style={[styles.badgeText, { color }]}>{item.itemCount} art.</Text>
+      {/* Loading */}
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={[styles.loadingText, { color: colors.gray400 }]}>Chargement…</Text>
+        </View>
+      ) : (
+        /* List */
+        <FlatList
+          data={suppliers}
+          keyExtractor={item => String(item.id)}
+          contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
+          ListHeaderComponent={
+            <Text style={[styles.count, { color: colors.gray400 }]}>
+              {suppliers.length} fournisseur{suppliers.length > 1 ? 's' : ''}
+            </Text>
+          }
+          ListEmptyComponent={
+            <Text style={[styles.emptyText, { color: colors.gray400 }]}>Aucun fournisseur</Text>
+          }
+          renderItem={({ item, index }) => {
+            const color = PALETTE[index % PALETTE.length];
+            return (
+              <TouchableOpacity
+                style={[styles.card, { backgroundColor: colors.surface }]}
+                activeOpacity={0.75}
+                onPress={() => openEdit(item)}
+              >
+                <SupplierLogo name={item.name} website={item.website} color={color} />
+                <View style={styles.cardContent}>
+                  <Text style={[styles.cardName, { color: colors.black }]}>{item.name}</Text>
+                  <Text style={[styles.cardContact, { color: colors.gray600 }]}>{item.website || '—'}</Text>
+                  <Text style={[styles.cardEmail, { color: colors.gray400 }]}>{item.email || '—'}</Text>
                 </View>
-                <Ionicons name="chevron-forward" size={16} color={colors.gray400} style={{ marginTop: 4 }} />
-              </View>
-            </TouchableOpacity>
-          );
-        }}
-        ItemSeparatorComponent={() => <View style={[styles.separator, { backgroundColor: colors.border }]} />}
-        ListFooterComponent={
-          isAdmin ? (
-            <TouchableOpacity
-              style={[styles.addRow, { backgroundColor: colors.surface, borderTopColor: colors.border }]}
-              onPress={openAdd}
-            >
-              <View style={[styles.addIconBox, { backgroundColor: colors.primaryBg }]}>
-                <Ionicons name="add" size={20} color={colors.primary} />
-              </View>
-              <Text style={[styles.addLabel, { color: colors.primary }]}>Ajouter un fournisseur</Text>
-            </TouchableOpacity>
-          ) : null
-        }
-      />
+                <View style={styles.right}>
+                  <Ionicons name="chevron-forward" size={16} color={colors.gray400} />
+                </View>
+              </TouchableOpacity>
+            );
+          }}
+          ItemSeparatorComponent={() => <View style={[styles.separator, { backgroundColor: colors.border }]} />}
+          ListFooterComponent={
+            isAdmin ? (
+              <TouchableOpacity
+                style={[styles.addRow, { backgroundColor: colors.surface, borderTopColor: colors.border }]}
+                onPress={openAdd}
+              >
+                <View style={[styles.addIconBox, { backgroundColor: colors.primaryBg }]}>
+                  <Ionicons name="add" size={20} color={colors.primary} />
+                </View>
+                <Text style={[styles.addLabel, { color: colors.primary }]}>Ajouter un fournisseur</Text>
+              </TouchableOpacity>
+            ) : null
+          }
+        />
+      )}
 
       {/* Modal */}
       <Modal visible={showModal} transparent animationType="slide" onRequestClose={() => setShowModal(false)}>
@@ -256,7 +312,7 @@ export default function SuppliersScreen() {
 
               <View style={styles.fields}>
                 <Field label="Nom" value={name} onChange={setName} placeholder="Ex: Apple France" icon="business-outline" required />
-                <Field label="Site web" value={contact} onChange={setContact} placeholder="Ex: apple.com" icon="globe-outline" keyboardType="url" />
+                <Field label="Site web" value={website} onChange={setWebsite} placeholder="https://example.com" icon="globe-outline" keyboardType="url" />
                 <Field label="Email" value={email} onChange={setEmail} placeholder="Ex: pro@apple.fr" icon="mail-outline" keyboardType="email-address" />
                 <Field label="Téléphone" value={phone} onChange={setPhone} placeholder="Ex: +33 1 00 00 00 00" icon="call-outline" keyboardType="phone-pad" />
               </View>
@@ -302,20 +358,24 @@ const styles = StyleSheet.create({
   topTitle: { ...Typography.h4 },
   addBtn: { width: 38, height: 38, borderRadius: Radius.full, alignItems: 'center', justifyContent: 'center', ...Shadow.sm },
 
+  loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.sm },
+  loadingText: { ...Typography.body },
+
   list: { padding: Spacing.md, paddingBottom: 100 },
   count: { ...Typography.caption, textTransform: 'uppercase', letterSpacing: 0.5, paddingHorizontal: 4, marginBottom: Spacing.sm },
+  emptyText: { ...Typography.body, textAlign: 'center', marginTop: Spacing.xl },
 
   card: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.md, paddingVertical: 13, gap: Spacing.md },
   separator: { height: 1, marginLeft: 70 },
-  avatar: { width: 42, height: 42, borderRadius: Radius.full, alignItems: 'center', justifyContent: 'center' },
+  avatar: { width: 42, height: 42, borderRadius: Radius.full, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   avatarText: { fontSize: 14, fontWeight: '800' },
+  logoImage:   { width: 32, height: 32, borderRadius: 4 },
+  logoFavicon: { width: 24, height: 24 },
   cardContent: { flex: 1, gap: 2 },
   cardName: { ...Typography.body, fontWeight: '600' },
   cardContact: { ...Typography.bodySmall },
   cardEmail: { ...Typography.caption },
   right: { alignItems: 'flex-end', gap: 4 },
-  badge: { borderRadius: Radius.full, paddingHorizontal: 8, paddingVertical: 3 },
-  badgeText: { ...Typography.caption, fontWeight: '600' },
 
   addRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.md, paddingVertical: 13, gap: Spacing.md, borderTopWidth: 1 },
   addIconBox: { width: 42, height: 42, borderRadius: Radius.full, alignItems: 'center', justifyContent: 'center' },

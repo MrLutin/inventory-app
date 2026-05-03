@@ -1,34 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Pressable,
-  TextInput, ScrollView, Modal,
+  TextInput, ScrollView, Modal, ActivityIndicator, Image,
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, Spacing, Radius, Shadow, Typography } from '@/constants/theme';
 import { useAuth } from '@/store/auth';
+import {
+  fetchSuppliers,
+  createSupplierDirectus,
+  updateSupplierDirectus,
+  deleteSupplierDirectus,
+  DirectusSupplierRef,
+  SupplierPayload,
+} from '@/lib/directusClient';
 
-// ─── Types & Data ─────────────────────────────────────────────────────────────
-
-interface Supplier {
-  id: string;
-  name: string;
-  contact: string;
-  email: string;
-  phone: string;
-  itemCount: number;
-}
-
-const INITIAL_SUPPLIERS: Supplier[] = [
-  { id: '1', name: 'Apple France',   contact: 'apple.com',       email: 'pro@apple.fr',         phone: '+33 1 00 00 00 01', itemCount: 2 },
-  { id: '2', name: 'Bosch Pro',      contact: 'bosch-pro.fr',    email: 'contact@bosch-pro.fr', phone: '+33 1 00 00 00 02', itemCount: 1 },
-  { id: '3', name: 'EcoWear',        contact: 'ecowear.fr',      email: 'info@ecowear.fr',       phone: '+33 1 00 00 00 03', itemCount: 1 },
-  { id: '4', name: 'ErgoFlex Pro',   contact: 'ergoflex.fr',     email: 'pro@ergoflex.fr',       phone: '+33 1 00 00 00 04', itemCount: 1 },
-  { id: '5', name: 'FlexiDesk',      contact: 'flexidesk.com',   email: 'sales@flexidesk.com',   phone: '+33 1 00 00 00 05', itemCount: 1 },
-  { id: '6', name: 'Keychron',       contact: 'keychron.com',    email: 'support@keychron.com',  phone: '+33 1 00 00 00 06', itemCount: 1 },
-  { id: '7', name: 'LG Electronics', contact: 'lg.com/fr',       email: 'pro@lg.fr',             phone: '+33 1 00 00 00 07', itemCount: 1 },
-  { id: '8', name: 'Terres de Café', contact: 'terresdecafe.fr', email: 'pro@terresdecafe.fr',   phone: '+33 1 00 00 00 08', itemCount: 1 },
-];
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const PALETTE = [
   '#6366F1', '#10B981', '#F59E0B',
@@ -37,6 +25,52 @@ const PALETTE = [
 
 const initials = (name: string) =>
   name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+
+/** Extrait le domaine propre depuis une URL */
+function getDomain(website: string | null | undefined): string | null {
+  if (!website) return null;
+  try {
+    const url = website.startsWith('http') ? website : `https://${website}`;
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return null;
+  }
+}
+
+// ─── SupplierLogo ─────────────────────────────────────────────────────────────
+// Essaie dans l'ordre : Clearbit → Google Favicons → initiales
+
+type LogoStep = 'clearbit' | 'google' | 'initials';
+
+function SupplierLogo({ name, website, color }: { name: string; website?: string | null; color: string }) {
+  const [step, setStep] = useState<LogoStep>('clearbit');
+  const domain = getDomain(website);
+
+  const src =
+    domain && step === 'clearbit' ? `https://logo.clearbit.com/${domain}` :
+    domain && step === 'google'   ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` :
+    null;
+
+  const handleError = () => {
+    if (step === 'clearbit') setStep('google');
+    else setStep('initials');
+  };
+
+  return (
+    <View style={[styles.avatar, { backgroundColor: `${color}18` }]}>
+      {src ? (
+        <Image
+          source={{ uri: src }}
+          style={step === 'google' ? styles.logoFavicon : styles.logoImage}
+          resizeMode="contain"
+          onError={handleError}
+        />
+      ) : (
+        <Text style={[styles.avatarText, { color }]}>{initials(name)}</Text>
+      )}
+    </View>
+  );
+}
 
 // ─── Field ────────────────────────────────────────────────────────────────────
 
@@ -97,17 +131,32 @@ export default function WebSuppliersScreen() {
   const colors   = useColors();
   const { isAdmin } = useAuth();
 
-  const [suppliers, setSuppliers] = useState<Supplier[]>(INITIAL_SUPPLIERS);
+  const [suppliers, setSuppliers] = useState<DirectusSupplierRef[]>([]);
+  const [loading,   setLoading]   = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [selected,  setSelected]  = useState<Supplier | null>(null);
+  const [selected,  setSelected]  = useState<DirectusSupplierRef | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   const [name,    setName]    = useState('');
-  const [contact, setContact] = useState('');
+  const [website, setWebsite] = useState('');
   const [email,   setEmail]   = useState('');
   const [phone,   setPhone]   = useState('');
 
   const isEdit = selected !== null;
+
+  const loadSuppliers = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await fetchSuppliers();
+      setSuppliers(data);
+    } catch (err: any) {
+      globalThis.alert?.(`Erreur : ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadSuppliers(); }, [loadSuppliers]);
 
   // Auto-open form when navigating from sidebar with ?add=1
   useEffect(() => {
@@ -116,40 +165,47 @@ export default function WebSuppliersScreen() {
 
   const openAdd = () => {
     setSelected(null);
-    setName(''); setContact(''); setEmail(''); setPhone('');
+    setName(''); setWebsite(''); setEmail(''); setPhone('');
     setShowModal(true);
   };
 
-  const openEdit = (supplier: Supplier) => {
+  const openEdit = (supplier: DirectusSupplierRef) => {
     setSelected(supplier);
     setName(supplier.name);
-    setContact(supplier.contact);
-    setEmail(supplier.email);
-    setPhone(supplier.phone);
+    setWebsite(supplier.website ?? '');
+    setEmail(supplier.email ?? '');
+    setPhone(supplier.phone ?? '');
     setShowModal(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!name.trim()) return;
-    if (isEdit) {
-      setSuppliers(prev => prev.map(s =>
-        s.id === selected.id
-          ? { ...s, name: name.trim(), contact: contact.trim(), email: email.trim(), phone: phone.trim() }
-          : s
-      ));
-    } else {
-      setSuppliers(prev => [
-        { id: Date.now().toString(), name: name.trim(), contact: contact.trim(), email: email.trim(), phone: phone.trim(), itemCount: 0 },
-        ...prev,
-      ]);
+    try {
+      const payload: SupplierPayload = { name: name.trim() };
+      if (website.trim()) payload.website = website.trim();
+      if (email.trim())   payload.email   = email.trim();
+      if (phone.trim())   payload.phone   = phone.trim();
+      if (isEdit) {
+        await updateSupplierDirectus(String(selected.id), payload);
+      } else {
+        await createSupplierDirectus(payload);
+      }
+      setShowModal(false);
+      await loadSuppliers();
+    } catch (err: any) {
+      globalThis.alert?.(`Erreur : ${err.message}`);
     }
-    setShowModal(false);
   };
 
-  const handleDelete = (supplier: Supplier) => {
+  const handleDelete = async (supplier: DirectusSupplierRef) => {
     if (globalThis.confirm?.(`Supprimer le fournisseur "${supplier.name}" ?`)) {
-      setSuppliers(prev => prev.filter(s => s.id !== supplier.id));
-      setShowModal(false);
+      try {
+        await deleteSupplierDirectus(String(supplier.id));
+        setShowModal(false);
+        await loadSuppliers();
+      } catch (err: any) {
+        globalThis.alert?.(`Erreur : ${err.message}`);
+      }
     }
   };
 
@@ -180,111 +236,111 @@ export default function WebSuppliersScreen() {
       <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
         <View style={styles.tableWrap}>
 
-          {/* Table header */}
-          <View style={[styles.tableHead, { backgroundColor: colors.gray50, borderBottomColor: colors.border }]}>
-            <View style={styles.colAvatar} />
-            <Text style={[styles.thCell, styles.colName,    { color: colors.gray400 }]}>Fournisseur</Text>
-            <Text style={[styles.thCell, styles.colContact, { color: colors.gray400 }]}>Site web</Text>
-            <Text style={[styles.thCell, styles.colEmail,   { color: colors.gray400 }]}>Email</Text>
-            <Text style={[styles.thCell, styles.colPhone,   { color: colors.gray400 }]}>Téléphone</Text>
-            <Text style={[styles.thCell, styles.colCount,   { color: colors.gray400 }]}>Articles</Text>
-            {isAdmin && <View style={styles.colActions} />}
-          </View>
-
-          {/* Rows */}
-          {suppliers.map((item, index) => {
-            const color   = PALETTE[index % PALETTE.length];
-            const hovered = hoveredId === item.id;
-            return (
-              <Pressable
-                key={item.id}
-                style={[
-                  styles.tableRow,
-                  { borderBottomColor: colors.border },
-                  hovered && { backgroundColor: `${colors.primary}08` },
-                ]}
-                onHoverIn={() => setHoveredId(item.id)}
-                onHoverOut={() => setHoveredId(null)}
-                onPress={() => isAdmin && openEdit(item)}
-              >
-                {/* Avatar */}
-                <View style={styles.colAvatar}>
-                  <View style={[styles.avatar, { backgroundColor: `${color}18` }]}>
-                    <Text style={[styles.avatarText, { color }]}>{initials(item.name)}</Text>
-                  </View>
-                </View>
-
-                {/* Name */}
-                <View style={styles.colName}>
-                  <Text style={[styles.cellPrimary, { color: colors.black }]}>{item.name}</Text>
-                </View>
-
-                {/* Contact */}
-                <View style={styles.colContact}>
-                  <Text style={[styles.cellSecondary, { color: colors.gray600 }]}>
-                    {item.contact || '—'}
-                  </Text>
-                </View>
-
-                {/* Email */}
-                <View style={styles.colEmail}>
-                  <Text style={[styles.cellSecondary, { color: colors.gray600 }]}>
-                    {item.email || '—'}
-                  </Text>
-                </View>
-
-                {/* Phone */}
-                <View style={styles.colPhone}>
-                  <Text style={[styles.cellSecondary, { color: colors.gray600 }]}>
-                    {item.phone || '—'}
-                  </Text>
-                </View>
-
-                {/* Articles count */}
-                <View style={[styles.colCount, { alignItems: 'center' }]}>
-                  <View style={[styles.countBadge, { backgroundColor: `${color}18` }]}>
-                    <Text style={[styles.countBadgeText, { color }]}>{item.itemCount}</Text>
-                  </View>
-                </View>
-
-                {/* Actions */}
-                {isAdmin && (
-                  <View style={[styles.colActions, styles.actionsRow]}>
-                    <Pressable
-                      style={({ hovered: h }: any) => [
-                        styles.actionBtn,
-                        { backgroundColor: colors.gray100 },
-                        h && { backgroundColor: colors.primaryBg },
-                      ]}
-                      onPress={e => { (e as any).stopPropagation?.(); openEdit(item); }}
-                    >
-                      <Ionicons name="pencil-outline" size={15} color={colors.primary} />
-                    </Pressable>
-                    <Pressable
-                      style={({ hovered: h }: any) => [
-                        styles.actionBtn,
-                        { backgroundColor: colors.gray100 },
-                        h && { backgroundColor: colors.dangerLight },
-                      ]}
-                      onPress={e => { (e as any).stopPropagation?.(); handleDelete(item); }}
-                    >
-                      <Ionicons name="trash-outline" size={15} color={colors.danger} />
-                    </Pressable>
-                  </View>
-                )}
-              </Pressable>
-            );
-          })}
-
-          {/* Empty state */}
-          {suppliers.length === 0 && (
-            <View style={[styles.emptyState, { borderColor: colors.border }]}>
-              <Ionicons name="business-outline" size={40} color={colors.gray400} />
-              <Text style={[styles.emptyTitle, { color: colors.black }]}>Aucun fournisseur</Text>
-              <Text style={[styles.emptyText, { color: colors.gray400 }]}>
-                Ajoutez votre premier fournisseur.
-              </Text>
+          {/* Loading */}
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <Text style={[styles.loadingText, { color: colors.gray400 }]}>Chargement…</Text>
             </View>
+          ) : (
+            <>
+              {/* Table header */}
+              <View style={[styles.tableHead, { backgroundColor: colors.gray50, borderBottomColor: colors.border }]}>
+                <View style={styles.colAvatar} />
+                <Text style={[styles.thCell, styles.colName,    { color: colors.gray400 }]}>Fournisseur</Text>
+                <Text style={[styles.thCell, styles.colContact, { color: colors.gray400 }]}>Site web</Text>
+                <Text style={[styles.thCell, styles.colEmail,   { color: colors.gray400 }]}>Email</Text>
+                <Text style={[styles.thCell, styles.colPhone,   { color: colors.gray400 }]}>Téléphone</Text>
+                {isAdmin && <View style={styles.colActions} />}
+              </View>
+
+              {/* Rows */}
+              {suppliers.map((item, index) => {
+                const color   = PALETTE[index % PALETTE.length];
+                const hovered = hoveredId === String(item.id);
+                return (
+                  <Pressable
+                    key={String(item.id)}
+                    style={[
+                      styles.tableRow,
+                      { borderBottomColor: colors.border },
+                      hovered && { backgroundColor: `${colors.primary}08` },
+                    ]}
+                    onHoverIn={() => setHoveredId(String(item.id))}
+                    onHoverOut={() => setHoveredId(null)}
+                    onPress={() => isAdmin && openEdit(item)}
+                  >
+                    {/* Logo / Avatar */}
+                    <View style={styles.colAvatar}>
+                      <SupplierLogo name={item.name} website={item.website} color={color} />
+                    </View>
+
+                    {/* Name */}
+                    <View style={styles.colName}>
+                      <Text style={[styles.cellPrimary, { color: colors.black }]}>{item.name}</Text>
+                    </View>
+
+                    {/* Site web */}
+                    <View style={styles.colContact}>
+                      <Text style={[styles.cellSecondary, { color: colors.gray600 }]}>
+                        {item.website || '—'}
+                      </Text>
+                    </View>
+
+                    {/* Email */}
+                    <View style={styles.colEmail}>
+                      <Text style={[styles.cellSecondary, { color: colors.gray600 }]}>
+                        {item.email || '—'}
+                      </Text>
+                    </View>
+
+                    {/* Phone */}
+                    <View style={styles.colPhone}>
+                      <Text style={[styles.cellSecondary, { color: colors.gray600 }]}>
+                        {item.phone || '—'}
+                      </Text>
+                    </View>
+
+                    {/* Actions */}
+                    {isAdmin && (
+                      <View style={[styles.colActions, styles.actionsRow]}>
+                        <Pressable
+                          style={({ hovered: h }: any) => [
+                            styles.actionBtn,
+                            { backgroundColor: colors.gray100 },
+                            h && { backgroundColor: colors.primaryBg },
+                          ]}
+                          onPress={e => { (e as any).stopPropagation?.(); openEdit(item); }}
+                        >
+                          <Ionicons name="pencil-outline" size={15} color={colors.primary} />
+                        </Pressable>
+                        <Pressable
+                          style={({ hovered: h }: any) => [
+                            styles.actionBtn,
+                            { backgroundColor: colors.gray100 },
+                            h && { backgroundColor: colors.dangerLight },
+                          ]}
+                          onPress={e => { (e as any).stopPropagation?.(); handleDelete(item); }}
+                        >
+                          <Ionicons name="trash-outline" size={15} color={colors.danger} />
+                        </Pressable>
+                      </View>
+                    )}
+                  </Pressable>
+                );
+              })}
+
+              {/* Empty state */}
+              {suppliers.length === 0 && (
+                <View style={[styles.emptyState, { borderColor: colors.border }]}>
+                  <Ionicons name="business-outline" size={40} color={colors.gray400} />
+                  <Text style={[styles.emptyTitle, { color: colors.black }]}>Aucun fournisseur</Text>
+                  <Text style={[styles.emptyText, { color: colors.gray400 }]}>
+                    Ajoutez votre premier fournisseur.
+                  </Text>
+                </View>
+              )}
+            </>
           )}
         </View>
       </ScrollView>
@@ -324,7 +380,7 @@ export default function WebSuppliersScreen() {
             {/* Fields */}
             <View style={styles.fields}>
               <Field label="Nom"       value={name}    onChange={setName}    placeholder="Ex: Apple France"        icon="business-outline" required keyboardType="default" />
-              <Field label="Site web"  value={contact} onChange={setContact} placeholder="Ex: apple.com"           icon="globe-outline"    keyboardType="url" />
+              <Field label="Site web"  value={website} onChange={setWebsite} placeholder="https://example.com"    icon="globe-outline"    keyboardType="url" />
               <Field label="Email"     value={email}   onChange={setEmail}   placeholder="Ex: pro@apple.fr"        icon="mail-outline"     keyboardType="email-address" />
               <Field label="Téléphone" value={phone}   onChange={setPhone}   placeholder="Ex: +33 1 00 00 00 00"   icon="call-outline"     keyboardType="phone-pad" />
             </View>
@@ -381,6 +437,9 @@ const styles = StyleSheet.create({
   },
   addBtnText: { ...Typography.bodySmall, color: '#fff', fontWeight: '700' },
 
+  loadingContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: Spacing.sm },
+  loadingText: { ...Typography.body },
+
   // Table
   tableWrap: { padding: Spacing.xl },
   tableHead: {
@@ -403,17 +462,15 @@ const styles = StyleSheet.create({
   colContact: { flex: 1.2, paddingRight: Spacing.md },
   colEmail:   { flex: 2,   paddingRight: Spacing.md },
   colPhone:   { flex: 1.5, paddingRight: Spacing.md },
-  colCount:   { width: 80 },
   colActions: { width: 80 },
 
-  avatar:     { width: 36, height: 36, borderRadius: Radius.full, alignItems: 'center', justifyContent: 'center' },
+  avatar:     { width: 36, height: 36, borderRadius: Radius.full, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   avatarText: { fontSize: 12, fontWeight: '800' },
+  logoImage:   { width: 28, height: 28, borderRadius: 4 },
+  logoFavicon: { width: 22, height: 22 },
 
   cellPrimary:   { ...Typography.body, fontWeight: '600' },
   cellSecondary: { ...Typography.bodySmall },
-
-  countBadge:     { borderRadius: Radius.full, paddingHorizontal: 10, paddingVertical: 3, alignSelf: 'flex-start' },
-  countBadgeText: { ...Typography.caption, fontWeight: '700' },
 
   actionsRow: { flexDirection: 'row', gap: 6, justifyContent: 'flex-end' },
   actionBtn: {

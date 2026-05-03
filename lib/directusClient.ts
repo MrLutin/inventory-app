@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DIRECTUS_URL, COLLECTION, ITEM_FIELDS } from '@/constants/directus';
-import { InventoryItem, Category } from '@/constants/data';
+import { InventoryItem, Category, Supplier, Location } from '@/constants/data';
 
 // ─── Storage keys ─────────────────────────────────────────────────────────────
 
@@ -117,14 +117,13 @@ async function apiRequest<T>(
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 export interface DirectusUser {
-  id: string;
-  first_name: string;
-  last_name:  string;
+  id:         string;
+  first_name: string | null;
+  last_name:  string | null;
   email:      string;
-  role: {
-    id:   string;
-    name: string;
-  };
+  // role is a nested object when the user has permission to read directus_roles (admins),
+  // or a plain UUID string when they don't (regular users).
+  role: { id: string; name: string } | string | null;
 }
 
 export async function directusLogin(email: string, password: string): Promise<{
@@ -144,18 +143,35 @@ export async function directusLogin(email: string, password: string): Promise<{
   await saveTokens(authRes.data.access_token, authRes.data.refresh_token, authRes.data.expires);
 
   // 2. Fetch user info
-  const meRes = await apiRequest<{ data: DirectusUser }>(
-    '/users/me?fields=id,first_name,last_name,email,role.id,role.name',
-  );
+  const user = await fetchMe();
+  return { user, accessToken: authRes.data.access_token };
+}
 
-  return { user: meRes.data, accessToken: authRes.data.access_token };
+// Step 1: fetch basic profile (always succeeds — role comes back as UUID string).
+// Step 2: try to resolve role details via /roles/{id} (may fail if user has no
+//         read permission on directus_roles — that's fine, we just keep the UUID).
+async function fetchMe(): Promise<DirectusUser> {
+  const res = await apiRequest<{ data: DirectusUser }>(
+    '/users/me?fields=id,first_name,last_name,email,role',
+  );
+  const user = res.data;
+
+  if (user.role && typeof user.role === 'string') {
+    try {
+      const roleRes = await apiRequest<{ data: { id: string; name: string } }>(
+        `/roles/${user.role}?fields=id,name`,
+      );
+      user.role = roleRes.data;
+    } catch {
+      // No permission on directus_roles — role stays as UUID → treated as 'user'
+    }
+  }
+
+  return user;
 }
 
 export async function apiGetMe(): Promise<DirectusUser> {
-  const res = await apiRequest<{ data: DirectusUser }>(
-    '/users/me?fields=id,first_name,last_name,email,role.id,role.name',
-  );
-  return res.data;
+  return fetchMe();
 }
 
 export async function directusLogout(): Promise<void> {
@@ -174,56 +190,165 @@ export async function directusLogout(): Promise<void> {
 //
 // If your Directus fields have different names, adjust the mapping here.
 
+// Raw Directus shapes for relations
+type DirectusSupplier = { id: number | string; name: string };
+type DirectusLocation = { id: number | string; name: string; zone?: string };
+
 type DirectusItem = {
-  id:           number | string;
-  name:         string;
-  sku:          string;
-  barcode:      string;
-  category:     Category;
-  quantity:     number;
-  min_quantity: number;
-  price:        number;
-  location:     string;
-  description:  string;
-  supplier:     string;
-  image_emoji:  string;
-  date_updated: string | null;
+  id:            number | string;
+  name:          string;
+  sku:           string;
+  barcode:       string;
+  supplier_code: string | null;
+  min_quantity:  number;
+  price:         number;
+  // Many-to-One → object (or null)
+  supplier:      DirectusSupplier | null;
+  // Many-to-Many → array of junction rows (id = PK of items_locations)
+  locations:     Array<{ id?: number | string; quantity?: number; locations_id: DirectusLocation }>;
+  description:   string;
+  image:         string | null; // Directus file UUID
+  date_updated:  string | null;
 };
 
+// ─── Image helper ─────────────────────────────────────────────────────────────
+
+/** Returns the full URL for a Directus file UUID, or null if no image. */
+export function getImageUrl(uuid: string | null | undefined): string | null {
+  if (!uuid) return null;
+  return `${DIRECTUS_URL}/assets/${uuid}`;
+}
+
+/** Uploads a local file to Directus and returns the file UUID. */
+export async function uploadFile(uri: string, filename: string, mimeType = 'image/jpeg'): Promise<string> {
+  const token = await getValidToken();
+  if (!token) throw new Error('NOT_AUTHENTICATED');
+
+  const formData = new FormData();
+  formData.append('file', { uri, name: filename, type: mimeType } as any);
+
+  const res = await fetch(`${DIRECTUS_URL}/files`, {
+    method:  'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body:    formData,
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.errors?.[0]?.message ?? `HTTP ${res.status}`);
+  }
+
+  const { data } = await res.json();
+  return data.id as string;
+}
+
+// ─── Field mapping ────────────────────────────────────────────────────────────
+
 function fromDirectus(d: DirectusItem): InventoryItem {
+  const rawCat = (d as any).category;
+
+  // Supporte 3 cas :
+  //   1. Objet M2O  : { id, name, slug }  → préférer slug, sinon name
+  //   2. Entier     : 3                   → on n'a pas le nom, fallback 'other'
+  //   3. Chaîne     : "electronics"       → utiliser directement
+  const category =
+    rawCat && typeof rawCat === 'object'
+      ? (rawCat.name ?? rawCat.slug ?? 'other')   // nom pour l'affichage
+      : (typeof rawCat === 'string' && rawCat.length > 0 ? rawCat : 'other');
+
+  const categoryId =
+    rawCat && typeof rawCat === 'object' && rawCat.id != null
+      ? String(rawCat.id)
+      : null;
+
+  const categoryColor =
+    rawCat && typeof rawCat === 'object' && rawCat.color
+      ? String(rawCat.color)
+      : null;
+
   return {
-    id:          String(d.id),
-    name:        d.name         ?? '',
-    sku:         d.sku          ?? '',
-    barcode:     d.barcode      ?? '',
-    category:    d.category     ?? 'other',
-    quantity:    Number(d.quantity    ?? 0),
+    id:           String(d.id),
+    name:         d.name          ?? '',
+    sku:          d.sku           ?? '',
+    barcode:      d.barcode       ?? '',
+    supplierCode: d.supplier_code ?? null,
+    category,
+    categoryId,
+    categoryColor,
+    // Total quantity = sum of quantities across all locations
+    quantity:    (d.locations ?? []).reduce((sum, j) => sum + (j.quantity ?? 0), 0),
     minQuantity: Number(d.min_quantity ?? 0),
     price:       Number(d.price       ?? 0),
-    location:    d.location     ?? '',
+    supplier:    d.supplier
+      ? { id: String(d.supplier.id), name: d.supplier.name ?? '' }
+      : null,
+    locations:   (d.locations ?? []).map(j => ({
+      junctionId: j.id != null ? String(j.id) : undefined,
+      id:         String(j.locations_id.id),
+      name:       j.locations_id.name ?? '',
+      zone:       j.locations_id.zone,
+      quantity:   j.quantity ?? undefined,
+    })),
     description: d.description  ?? '',
-    supplier:    d.supplier     ?? '',
-    imageEmoji:  d.image_emoji  ?? '📦',
+    image:       d.image        ?? null,
     lastUpdated: d.date_updated
       ? d.date_updated.slice(0, 10)
       : new Date().toISOString().slice(0, 10),
   };
 }
 
-function toDirectus(item: Partial<InventoryItem>): Partial<DirectusItem> {
-  const d: Partial<DirectusItem> = {};
-  if (item.name         !== undefined) d.name         = item.name;
-  if (item.sku          !== undefined) d.sku          = item.sku;
-  if (item.barcode      !== undefined) d.barcode      = item.barcode;
-  if (item.category     !== undefined) d.category     = item.category;
-  if (item.quantity     !== undefined) d.quantity     = item.quantity;
-  if (item.minQuantity  !== undefined) d.min_quantity = item.minQuantity;
-  if (item.price        !== undefined) d.price        = item.price;
-  if (item.location     !== undefined) d.location     = item.location;
-  if (item.description  !== undefined) d.description  = item.description;
-  if (item.supplier     !== undefined) d.supplier     = item.supplier;
-  if (item.imageEmoji   !== undefined) d.image_emoji  = item.imageEmoji;
+function toDirectus(item: Partial<InventoryItem>, locationsToDelete: string[] = []): Record<string, unknown> {
+  const d: Record<string, unknown> = {};
+  if (item.name         !== undefined) d.name          = item.name;
+  // sku omis — généré automatiquement par Directus (uuid special)
+  if (item.barcode      !== undefined) d.barcode        = item.barcode;
+  if (item.supplierCode !== undefined) d.supplier_code  = item.supplierCode ?? null;
+  // category → envoyer l'ID entier (clé étrangère M2O), pas le slug
+  if (item.categoryId !== undefined) d.category = item.categoryId ? Number(item.categoryId) : null;
+  else if (item.category !== undefined) d.category = item.category; // fallback si categoryId absent
+  // quantity is computed from locations — never sent directly to Directus
+  if (item.minQuantity  !== undefined) d.min_quantity  = item.minQuantity;
+  if (item.price        !== undefined) d.price         = item.price;
+  if (item.description  !== undefined) d.description   = item.description;
+  if (item.image        !== undefined) d.image         = item.image; // UUID or null
+  // Many-to-One: send supplier ID (or null to unlink)
+  if (item.supplier     !== undefined) d.supplier      = item.supplier ? Number(item.supplier.id) : null;
+  // Many-to-Many: use Directus explicit create/update/delete format.
+  // - junctionId present  → update existing junction row in place
+  // - junctionId absent   → create new junction row
+  // This prevents Directus from creating duplicate rows on PATCH.
+  if (item.locations !== undefined) {
+    const toUpdate = item.locations.filter(l => l.junctionId);
+    const toCreate = item.locations.filter(l => !l.junctionId);
+    d.locations = {
+      update: toUpdate.map(l => ({
+        id:           Number(l.junctionId),
+        quantity:     l.quantity ?? 0,
+      })),
+      create: toCreate.map(l => ({
+        locations_id: Number(l.id),
+        quantity:     l.quantity ?? 0,
+      })),
+      delete: locationsToDelete.map(Number),
+    };
+  }
   return d;
+}
+
+// ─── Categories ───────────────────────────────────────────────────────────────
+
+export interface DirectusCategory {
+  id:    number | string;
+  name:  string;
+  slug?: string | null;
+  color?: string | null;
+}
+
+export async function fetchCategories(): Promise<DirectusCategory[]> {
+  const res = await apiRequest<{ data: DirectusCategory[] }>(
+    '/items/categories?fields=id,name,slug,color&sort=name',
+  );
+  return res.data;
 }
 
 // ─── Inventory CRUD ───────────────────────────────────────────────────────────
@@ -243,14 +368,131 @@ export async function createDirectusItem(item: Omit<InventoryItem, 'id' | 'lastU
   return fromDirectus(res.data);
 }
 
-export async function updateDirectusItem(id: string, item: Partial<InventoryItem>): Promise<InventoryItem> {
+export async function updateDirectusItem(id: string, item: Partial<InventoryItem>, locationsToDelete: string[] = []): Promise<InventoryItem> {
   const res = await apiRequest<{ data: DirectusItem }>(
     `/items/${COLLECTION}/${id}`,
-    { method: 'PATCH', body: JSON.stringify(toDirectus(item)) },
+    { method: 'PATCH', body: JSON.stringify(toDirectus(item, locationsToDelete)) },
   );
   return fromDirectus(res.data);
 }
 
 export async function deleteDirectusItem(id: string): Promise<void> {
   await apiRequest<void>(`/items/${COLLECTION}/${id}`, { method: 'DELETE' });
+}
+
+// ─── Suppliers ────────────────────────────────────────────────────────────────
+
+export interface DirectusSupplierRef {
+  id:       number | string;
+  name:     string;
+  contact?: string | null;
+  email?:   string | null;
+  phone?:   string | null;
+  website?: string | null;
+}
+
+export async function fetchSuppliers(): Promise<DirectusSupplierRef[]> {
+  const res = await apiRequest<{ data: DirectusSupplierRef[] }>(
+    '/items/suppliers?fields=id,name,website&sort=name',
+  );
+  return res.data;
+}
+
+// ─── Locations ────────────────────────────────────────────────────────────────
+
+export interface DirectusLocationRef {
+  id:           number | string;
+  name:         string;
+  zone?:        string | null;
+  description?: string | null;
+}
+
+export async function fetchLocations(): Promise<DirectusLocationRef[]> {
+  const res = await apiRequest<{ data: DirectusLocationRef[] }>(
+    '/items/locations?fields=id,name,zone,description&sort=name',
+  );
+  return res.data;
+}
+
+// ─── Suppliers CRUD ───────────────────────────────────────────────────────────
+
+export type SupplierPayload = {
+  name:     string;
+  website?: string;
+  // email et phone sont optionnels — ajouter ces champs dans Directus si nécessaire
+  email?:   string;
+  phone?:   string;
+};
+
+export async function createSupplierDirectus(data: SupplierPayload): Promise<DirectusSupplierRef & { contact?: string; email?: string; phone?: string }> {
+  const res = await apiRequest<{ data: any }>(
+    '/items/suppliers',
+    { method: 'POST', body: JSON.stringify(data) },
+  );
+  return res.data;
+}
+
+export async function updateSupplierDirectus(id: string, data: Partial<SupplierPayload>): Promise<void> {
+  await apiRequest<void>(
+    `/items/suppliers/${id}`,
+    { method: 'PATCH', body: JSON.stringify(data) },
+  );
+}
+
+export async function deleteSupplierDirectus(id: string): Promise<void> {
+  await apiRequest<void>(`/items/suppliers/${id}`, { method: 'DELETE' });
+}
+
+// ─── Categories CRUD ─────────────────────────────────────────────────────────
+
+export type CategoryPayload = {
+  name:   string;
+  slug?:  string;
+  color?: string | null;
+};
+
+export async function createCategoryDirectus(data: CategoryPayload): Promise<DirectusCategory> {
+  const res = await apiRequest<{ data: DirectusCategory }>(
+    '/items/categories',
+    { method: 'POST', body: JSON.stringify(data) },
+  );
+  return res.data;
+}
+
+export async function updateCategoryDirectus(id: string, data: Partial<CategoryPayload>): Promise<void> {
+  await apiRequest<void>(
+    `/items/categories/${id}`,
+    { method: 'PATCH', body: JSON.stringify(data) },
+  );
+}
+
+export async function deleteCategoryDirectus(id: string): Promise<void> {
+  await apiRequest<void>(`/items/categories/${id}`, { method: 'DELETE' });
+}
+
+// ─── Locations CRUD ───────────────────────────────────────────────────────────
+
+export type LocationPayload = {
+  name: string;
+  zone?: string;
+  description?: string;
+};
+
+export async function createLocationDirectus(data: LocationPayload): Promise<DirectusLocationRef & { description?: string }> {
+  const res = await apiRequest<{ data: any }>(
+    '/items/locations',
+    { method: 'POST', body: JSON.stringify(data) },
+  );
+  return res.data;
+}
+
+export async function updateLocationDirectus(id: string, data: Partial<LocationPayload>): Promise<void> {
+  await apiRequest<void>(
+    `/items/locations/${id}`,
+    { method: 'PATCH', body: JSON.stringify(data) },
+  );
+}
+
+export async function deleteLocationDirectus(id: string): Promise<void> {
+  await apiRequest<void>(`/items/locations/${id}`, { method: 'DELETE' });
 }

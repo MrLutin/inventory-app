@@ -1,11 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, TextInput, ScrollView, StyleSheet,
-  TouchableOpacity, Pressable,
+  TouchableOpacity, Pressable, Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Category, CATEGORY_LABELS, getStockStatus } from '@/constants/data';
+import { getStockStatus } from '@/constants/data';
+import { getImageUrl, fetchCategories, DirectusCategory } from '@/lib/directusClient';
 import { useColors, Spacing, Radius, Typography, Shadow } from '@/constants/theme';
 import { useInventory } from '@/store/inventory';
 import { useAuth } from '@/store/auth';
@@ -17,16 +18,6 @@ import CategoryBadge from '@/components/CategoryBadge';
 type SortKey = 'name' | 'quantity' | 'price' | 'value';
 type SortDir = 'asc' | 'desc';
 
-const CATEGORIES: { key: Category | 'all'; label: string }[] = [
-  { key: 'all',         label: 'Tout' },
-  { key: 'electronics', label: 'Électronique' },
-  { key: 'clothing',    label: 'Vêtements' },
-  { key: 'food',        label: 'Alimentation' },
-  { key: 'furniture',   label: 'Mobilier' },
-  { key: 'tools',       label: 'Outils' },
-  { key: 'other',       label: 'Autre' },
-];
-
 // ─── Screen ──────────────────────────────────────────────────────────────────
 
 export default function WebInventoryScreen() {
@@ -36,20 +27,26 @@ export default function WebInventoryScreen() {
   const colors = useColors();
 
   const [search,          setSearch]          = useState('');
-  const [activeCategory,  setActiveCategory]  = useState<Category | 'all'>('all');
+  const [activeCategory,  setActiveCategory]  = useState<string>('all'); // 'all' ou categoryId
   const [sortKey,         setSortKey]         = useState<SortKey>('name');
   const [sortDir,         setSortDir]         = useState<SortDir>('asc');
+  const [categories,      setCategories]      = useState<DirectusCategory[]>([]);
+
+  // Charge les catégories depuis Directus au montage
+  useEffect(() => {
+    fetchCategories().then(setCategories).catch(() => {});
+  }, []);
 
   // ── Filtered + sorted ──
   const filtered = useMemo(() => {
     const result = items.filter(item => {
-      const matchCat    = activeCategory === 'all' || item.category === activeCategory;
+      const matchCat    = activeCategory === 'all' || item.categoryId === activeCategory;
       const q           = search.toLowerCase();
       const matchSearch = !q
         || item.name.toLowerCase().includes(q)
         || item.sku.toLowerCase().includes(q)
         || item.barcode.includes(q)
-        || item.supplier.toLowerCase().includes(q);
+        || (item.supplier?.name ?? '').toLowerCase().includes(q);
       return matchCat && matchSearch;
     });
 
@@ -101,8 +98,8 @@ export default function WebInventoryScreen() {
     {
       label: 'Valeur totale',
       value: stats.totalValue >= 1000
-        ? `${(stats.totalValue / 1000).toFixed(1)}k €`
-        : `${stats.totalValue.toFixed(0)} €`,
+        ? `${(stats.totalValue / 1000).toFixed(1)}k$`
+        : `${stats.totalValue.toFixed(0)} $`,
       emoji: '💰',
       color: colors.accent,
     },
@@ -158,7 +155,7 @@ export default function WebInventoryScreen() {
             <Ionicons name="search-outline" size={16} color={colors.gray400} />
             <TextInput
               style={[styles.searchInput, { color: colors.black }]}
-              placeholder="Rechercher nom, SKU, code-barres, fournisseur…"
+              placeholder="Rechercher nom, code-barres, fournisseur…"
               placeholderTextColor={colors.gray400}
               value={search}
               onChangeText={setSearch}
@@ -170,23 +167,44 @@ export default function WebInventoryScreen() {
             )}
           </View>
 
-          {/* Category chips */}
+          {/* Category chips — dynamiques depuis Directus */}
           <View style={styles.chips}>
-            {CATEGORIES.map(cat => {
-              const isActive = activeCategory === cat.key;
+            {/* Chip "Tout" */}
+            <Pressable
+              style={({ hovered }: any) => [
+                styles.chip,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+                activeCategory === 'all' && { backgroundColor: colors.primary, borderColor: colors.primary },
+                activeCategory !== 'all' && hovered && { borderColor: colors.primary },
+              ]}
+              onPress={() => setActiveCategory('all')}
+            >
+              <Text style={[styles.chipLabel, { color: activeCategory === 'all' ? '#fff' : colors.gray600 }]}>
+                Tout
+              </Text>
+            </Pressable>
+
+            {/* Chips des catégories Directus */}
+            {categories.map(cat => {
+              const key      = String(cat.id);
+              const isActive = activeCategory === key;
+              const chipColor = cat.color ?? colors.primary;
               return (
                 <Pressable
-                  key={cat.key}
+                  key={key}
                   style={({ hovered }: any) => [
                     styles.chip,
                     { backgroundColor: colors.surface, borderColor: colors.border },
-                    isActive  && { backgroundColor: colors.primary, borderColor: colors.primary },
-                    !isActive && hovered && { borderColor: colors.primary },
+                    isActive  && { backgroundColor: chipColor, borderColor: chipColor },
+                    !isActive && hovered && { borderColor: chipColor },
                   ]}
-                  onPress={() => setActiveCategory(cat.key)}
+                  onPress={() => setActiveCategory(key)}
                 >
+                  {cat.color && !isActive && (
+                    <View style={[styles.chipDot, { backgroundColor: cat.color }]} />
+                  )}
                   <Text style={[styles.chipLabel, { color: isActive ? '#fff' : colors.gray600 }]}>
-                    {cat.label}
+                    {cat.name}
                   </Text>
                 </Pressable>
               );
@@ -250,14 +268,19 @@ export default function WebInventoryScreen() {
                   onPress={() => router.push(`/item/${item.id}`)}
                 >
                   <View style={[styles.colIcon, styles.td]}>
-                    <Text style={styles.rowEmoji}>{item.imageEmoji}</Text>
+                    <View style={styles.rowImageBox}>
+                      {getImageUrl(item.image)
+                        ? <Image source={{ uri: getImageUrl(item.image)! }} style={styles.rowImage} resizeMode="cover" />
+                        : <Ionicons name="image-outline" size={18} color="#aaa" />
+                      }
+                    </View>
                   </View>
                   <View style={[styles.colName, styles.td]}>
                     <Text style={[styles.rowName, { color: colors.black }]} numberOfLines={1}>
                       {item.name}
                     </Text>
                     <Text style={[styles.rowSupplier, { color: colors.gray400 }]} numberOfLines={1}>
-                      {item.supplier}
+                      {item.supplier?.name ?? '—'}
                     </Text>
                   </View>
                   <View style={[styles.colSku, styles.td]}>
@@ -266,7 +289,7 @@ export default function WebInventoryScreen() {
                     </Text>
                   </View>
                   <View style={[styles.colCat, styles.td]}>
-                    <CategoryBadge category={item.category} />
+                    <CategoryBadge category={item.category} color={item.categoryColor} />
                   </View>
                   <View style={[styles.colStatus, styles.td]}>
                     <StockBadge status={status} size="sm" />
@@ -281,14 +304,14 @@ export default function WebInventoryScreen() {
                   </View>
                   <View style={[styles.colPrice, styles.td]}>
                     <Text style={[styles.rowMono, { color: colors.black }]}>
-                      {item.price.toFixed(2)} €
+                      {item.price.toFixed(2)} $
                     </Text>
                   </View>
                   <View style={[styles.colValue, styles.td]}>
                     <Text style={[styles.rowValue, { color: colors.primary }]} numberOfLines={1}>
                       {parseFloat(val) >= 1000
-                        ? `${(parseFloat(val) / 1000).toFixed(1)}k €`
-                        : `${val} €`}
+                        ? `${(parseFloat(val) / 1000).toFixed(1)}k$`
+                        : `${val} $`}
                     </Text>
                   </View>
                   {isAdmin && (
@@ -369,9 +392,11 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, ...Typography.body, outlineStyle: 'none' as any, padding: 0 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   chip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingHorizontal: 12, paddingVertical: 6,
     borderRadius: Radius.full, borderWidth: 1.5,
   },
+  chipDot: { width: 8, height: 8, borderRadius: 4 },
   chipLabel: { ...Typography.bodySmall, fontWeight: '600' },
 
   // Table
@@ -396,7 +421,8 @@ const styles = StyleSheet.create({
   colValue:   { width: 100 },
   colActions: { width: 72, flexDirection: 'row', gap: 4, justifyContent: 'center', alignItems: 'center' },
 
-  rowEmoji:    { fontSize: 22 },
+  rowImageBox: { width: 36, height: 36, borderRadius: 8, overflow: 'hidden', backgroundColor: '#f0f0f0', alignItems: 'center', justifyContent: 'center' },
+  rowImage:    { width: 36, height: 36 },
   rowName:     { ...Typography.body, fontWeight: '600' },
   rowSupplier: { ...Typography.caption, marginTop: 1 },
   rowMono:     { ...Typography.bodySmall },

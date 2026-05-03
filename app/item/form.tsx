@@ -2,28 +2,18 @@ import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, ScrollView, StyleSheet,
   TouchableOpacity, SafeAreaView, StatusBar, Alert,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, Image,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useInventory } from '@/store/inventory';
 import { useAuth } from '@/store/auth';
-import { Category, CATEGORY_LABELS, InventoryItem } from '@/constants/data';
+import { InventoryItem } from '@/constants/data';
+import { getImageUrl, fetchCategories, fetchSuppliers, fetchLocations, DirectusCategory, DirectusSupplierRef, DirectusLocationRef } from '@/lib/directusClient';
 import { Colors, useColors, Spacing, Radius, Shadow, Typography } from '@/constants/theme';
 import BarcodeScannerModal from '@/components/BarcodeScannerModal';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-
-const CATEGORIES: Category[] = ['electronics', 'clothing', 'food', 'furniture', 'tools', 'other'];
-
-const EMOJIS = [
-  '📦','💻','📱','⌨️','🖥️','🖨️','📷','🎧','🔌','🔋',
-  '👕','👗','👟','🧢','🧣','👜','🕶️','💍',
-  '☕','🍎','🥐','🧃','🍕','🥫','🫙',
-  '🪑','🛋️','🪵','🛏️','🚿','🪟',
-  '🔧','🔨','⚙️','🪛','🔩','🪚','🔬','🧲',
-  '📚','✏️','📋','🗂️','🖊️','📐',
-];
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
@@ -97,49 +87,121 @@ export default function ItemFormScreen() {
     if (!isAdmin) router.replace('/(tabs)');
   }, [isAdmin]);
 
+  useEffect(() => {
+    fetchCategories()
+      .then(setCategories)
+      .catch(() => {}); // silently ignore if not set up yet
+  }, []);
+
+  useEffect(() => {
+    fetchSuppliers().then(setSuppliers).catch(() => {});
+    fetchLocations().then(setAvailableLocations).catch(() => {});
+  }, []);
+
   if (!isAdmin) return null;
 
-  const [name,        setName]        = useState(existing?.name        ?? '');
-  const [sku,         setSku]         = useState(existing?.sku         ?? '');
-  const [barcode,     setBarcode]     = useState(existing?.barcode     ?? '');
-  const [category,    setCategory]    = useState<Category>(existing?.category ?? 'other');
-  const [quantity,    setQuantity]    = useState(existing?.quantity.toString()    ?? '0');
+  const [name,         setName]         = useState(existing?.name         ?? '');
+  // SKU est généré automatiquement par Directus (UUID) — lecture seule
+  const sku = existing?.sku ?? null;
+  const [barcode,      setBarcode]      = useState(existing?.barcode      ?? '');
+  const [supplierCode, setSupplierCode] = useState(existing?.supplierCode ?? '');
+  const [categories,  setCategories]  = useState<DirectusCategory[]>([]);
+  const [category,      setCategory]      = useState<string>(existing?.category      ?? '');
+  const [categoryId,    setCategoryId]    = useState<string | null>(existing?.categoryId    ?? null);
+  const [categoryColor, setCategoryColor] = useState<string | null>(existing?.categoryColor ?? null);
+
+  const [suppliers,       setSuppliers]       = useState<DirectusSupplierRef[]>([]);
+  const [supplierId,      setSupplierId]      = useState<string | null>(existing?.supplier?.id ?? null);
+  const [supplierName,    setSupplierName]    = useState<string>(existing?.supplier?.name ?? '');
+
+  const [availableLocations, setAvailableLocations] = useState<DirectusLocationRef[]>([]);
+
+  // Map locId → { quantity, junctionId? }
+  type SelLocEntry = { quantity: number; junctionId?: string };
+  const [selectedLocs, setSelectedLocs] = useState<Record<string, SelLocEntry>>(
+    Object.fromEntries(
+      (existing?.locations ?? []).map(l => [l.id, { quantity: l.quantity ?? 0, junctionId: l.junctionId }])
+    )
+  );
+
   const [minQuantity, setMinQuantity] = useState(existing?.minQuantity.toString() ?? '5');
   const [price,       setPrice]       = useState(existing?.price.toString()       ?? '0');
-  const [location,    setLocation]    = useState(existing?.location    ?? '');
-  const [supplier,    setSupplier]    = useState(existing?.supplier    ?? '');
   const [description, setDescription] = useState(existing?.description ?? '');
-  const [emoji,        setEmoji]        = useState(existing?.imageEmoji  ?? '📦');
-  const [showEmoji,    setShowEmoji]    = useState(false);
-  const [showScanner,  setShowScanner]  = useState(false);
+  const [imageUuid,   setImageUuid]   = useState<string | null>(existing?.image ?? null);
+  const [showScanner, setShowScanner] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
+  const toggleLocation = (locId: string) => {
+    setSelectedLocs(prev => {
+      const next = { ...prev };
+      if (next[locId]) {
+        delete next[locId];
+      } else {
+        next[locId] = { quantity: 0 };
+      }
+      return next;
+    });
+  };
+
+  const setLocQty = (locId: string, qty: number) => {
+    setSelectedLocs(prev => ({
+      ...prev,
+      [locId]: { ...prev[locId], quantity: qty },
+    }));
+  };
+
+  const handleSave = async () => {
     if (!name.trim()) {
       Alert.alert('Champ requis', 'Le nom de l\'article est obligatoire.');
       return;
     }
     setSaving(true);
+
+    // Locations sélectionnées
+    const locations = Object.entries(selectedLocs).map(([locId, { quantity, junctionId }]) => {
+      const loc = availableLocations.find(l => String(l.id) === locId);
+      return {
+        id: locId,
+        name: loc?.name ?? '',
+        zone: loc?.zone ?? undefined,
+        quantity,
+        junctionId,
+      };
+    });
+
+    // Junction rows à supprimer (existaient avant, maintenant désélectionnés)
+    const locationsToDelete = (existing?.locations ?? [])
+      .filter(l => l.junctionId && !selectedLocs[l.id])
+      .map(l => l.junctionId!);
+
     const fields = {
       name:        name.trim(),
-      sku:         sku.trim(),
-      barcode:     barcode.trim(),
+      // sku omis — généré automatiquement par Directus
+      barcode:      barcode.trim(),
+      supplierCode: supplierCode.trim() || null,
       category,
-      quantity:    parseInt(quantity)    || 0,
+      categoryId,
+      categoryColor,
+      quantity:    locations.reduce((s, l) => s + (l.quantity ?? 0), 0),
       minQuantity: parseInt(minQuantity) || 0,
-      price:       parseFloat(price)     || 0,
-      location:    location.trim(),
-      supplier:    supplier.trim(),
+      price:       parseFloat(price) || 0,
+      locations,
+      supplier:    supplierId ? { id: supplierId, name: supplierName } : null,
       description: description.trim(),
-      imageEmoji:  emoji,
+      image:       imageUuid,
     };
-    if (isEdit && existing) {
-      updateItem({ ...fields, id: existing.id, lastUpdated: new Date().toISOString().slice(0, 10) });
-    } else {
-      addItem(fields);
+    try {
+      if (isEdit && existing) {
+        await updateItem({ ...fields, id: existing.id, lastUpdated: new Date().toISOString().slice(0, 10) }, locationsToDelete);
+      } else {
+        await addItem(fields);
+      }
+      router.back();
+    } catch (err: any) {
+      Alert.alert('Erreur', err?.message ?? 'Impossible de sauvegarder l\'article.');
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
-    router.back();
   };
 
   const handleDelete = () => {
@@ -181,34 +243,28 @@ export default function ItemFormScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Emoji picker */}
-          <View style={styles.emojiSection}>
-            <TouchableOpacity
-              style={[styles.emojiPicker, { backgroundColor: colors.gray100, borderColor: colors.border }]}
-              onPress={() => setShowEmoji(v => !v)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.emojiDisplay}>{emoji}</Text>
-              <View style={[styles.emojiEditBadge, { backgroundColor: colors.primary }]}>
-                <Ionicons name="pencil" size={11} color="#fff" />
-              </View>
-            </TouchableOpacity>
-            <Text style={[styles.emojiHint, { color: colors.gray400 }]}>Appuyer pour changer l'icône</Text>
-          </View>
-
-          {showEmoji && (
-            <View style={[styles.emojiGrid, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              {EMOJIS.map(e => (
-                <TouchableOpacity
-                  key={e}
-                  style={[styles.emojiCell, emoji === e && { backgroundColor: colors.primaryBg }]}
-                  onPress={() => { setEmoji(e); setShowEmoji(false); }}
-                >
-                  <Text style={styles.emojiCellText}>{e}</Text>
-                </TouchableOpacity>
-              ))}
+          {/* Image */}
+          <View style={styles.imageSection}>
+            <View style={[styles.imagePicker, { backgroundColor: colors.gray100, borderColor: colors.border }]}>
+              {getImageUrl(imageUuid)
+                ? <Image source={{ uri: getImageUrl(imageUuid)! }} style={styles.imagePreview} resizeMode="cover" />
+                : <Ionicons name="image-outline" size={36} color={colors.gray400} />
+              }
             </View>
-          )}
+            <View style={{ width: '100%', gap: 6 }}>
+              <Text style={[styles.imageHint, { color: colors.gray600, fontWeight: '600' }]}>UUID fichier Directus</Text>
+              <StyledInput
+                value={imageUuid ?? ''}
+                onChangeText={v => setImageUuid(v.trim() || null)}
+                placeholder="Ex: 4a3c8f12-…"
+              />
+              {imageUuid && (
+                <TouchableOpacity onPress={() => setImageUuid(null)}>
+                  <Text style={[styles.imageRemove, { color: colors.danger }]}>Supprimer l'image</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
 
           {/* Identification */}
           <Text style={[styles.sectionTitle, { color: colors.gray400 }]}>Identification</Text>
@@ -216,99 +272,193 @@ export default function ItemFormScreen() {
             <Field label="Nom de l'article" required>
               <StyledInput value={name} onChangeText={setName} placeholder={'Ex: MacBook Pro 14"'} maxLength={80} />
             </Field>
-            <View style={[styles.sep, { backgroundColor: colors.border }]} />
-            <Field label="SKU" hint="Sera assigné automatiquement par l'API">
-              <StyledInput value={sku} onChangeText={setSku} placeholder="Ex: APPL-MBP-14-001" maxLength={50} />
-            </Field>
+            {sku && (
+              <>
+                <View style={[styles.sep, { backgroundColor: colors.border }]} />
+                <Field label="SKU" hint="Identifiant unique généré automatiquement">
+                  <View style={[styles.skuBox, { backgroundColor: colors.gray100, borderColor: colors.border }]}>
+                    <Ionicons name="key-outline" size={15} color={colors.gray400} />
+                    <Text style={[styles.skuText, { color: colors.gray600 }]} numberOfLines={1}>{sku}</Text>
+                  </View>
+                </Field>
+              </>
+            )}
             <View style={[styles.sep, { backgroundColor: colors.border }]} />
             <Field label="Code-barres" hint="EAN-13, QR Code, Code 128…">
-              <TouchableOpacity
-                style={[
-                  styles.scanField,
-                  { borderColor: colors.border, backgroundColor: colors.gray50 },
-                  barcode ? { borderColor: colors.primary, backgroundColor: colors.primaryBg } : null,
-                ]}
-                onPress={() => setShowScanner(true)}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name={barcode ? 'barcode' : 'scan-outline'}
-                  size={20}
-                  color={barcode ? colors.primary : colors.gray400}
+              {Platform.OS === 'web' ? (
+                <StyledInput
+                  value={barcode}
+                  onChangeText={setBarcode}
+                  placeholder="Ex: 0194253387558"
                 />
-                <Text style={[styles.scanFieldText, { color: colors.gray400 }, barcode && { color: colors.black, fontWeight: '600' }]}>
-                  {barcode || 'Appuyer pour scanner…'}
-                </Text>
-                {barcode ? (
-                  <TouchableOpacity onPress={() => setBarcode('')} hitSlop={8}>
-                    <Ionicons name="close-circle" size={18} color={colors.gray400} />
-                  </TouchableOpacity>
-                ) : (
-                  <Ionicons name="chevron-forward" size={16} color={colors.gray400} />
-                )}
-              </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[
+                    styles.scanField,
+                    { borderColor: colors.border, backgroundColor: colors.gray50 },
+                    barcode ? { borderColor: colors.primary, backgroundColor: colors.primaryBg } : null,
+                  ]}
+                  onPress={() => setShowScanner(true)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name={barcode ? 'barcode' : 'scan-outline'}
+                    size={20}
+                    color={barcode ? colors.primary : colors.gray400}
+                  />
+                  <Text style={[styles.scanFieldText, { color: colors.gray400 }, barcode && { color: colors.black, fontWeight: '600' }]}>
+                    {barcode || 'Appuyer pour scanner…'}
+                  </Text>
+                  {barcode ? (
+                    <TouchableOpacity onPress={() => setBarcode('')} hitSlop={8}>
+                      <Ionicons name="close-circle" size={18} color={colors.gray400} />
+                    </TouchableOpacity>
+                  ) : (
+                    <Ionicons name="chevron-forward" size={16} color={colors.gray400} />
+                  )}
+                </TouchableOpacity>
+              )}
+            </Field>
+            <View style={[styles.sep, { backgroundColor: colors.border }]} />
+            <Field label="Code Fournisseur" hint="Référence produit chez le fournisseur">
+              <StyledInput
+                value={supplierCode}
+                onChangeText={setSupplierCode}
+                placeholder="Ex: AP-MBP14-M3PRO"
+                maxLength={80}
+              />
             </Field>
           </View>
 
           {/* Catégorie */}
-          <Text style={[styles.sectionTitle, { color: colors.gray400 }]}>Catégorie</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.categoryRow}
-          >
-            {CATEGORIES.map(cat => (
-              <TouchableOpacity
-                key={cat}
-                style={[
-                  styles.catChip,
-                  { backgroundColor: colors.surface, borderColor: colors.border },
-                  category === cat && { backgroundColor: colors.primary, borderColor: colors.primary },
-                ]}
-                onPress={() => setCategory(cat)}
-                activeOpacity={0.7}
+          {categories.length > 0 && (
+            <>
+              <Text style={[styles.sectionTitle, { color: colors.gray400 }]}>Catégorie</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.categoryRow}
               >
-                <Text style={[
-                  styles.catLabel,
-                  { color: colors.gray600 },
-                  category === cat && { color: '#fff' },
-                ]}>
-                  {CATEGORY_LABELS[cat]}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+                {categories.map(cat => {
+                  const isActive = categoryId === String(cat.id);
+                  return (
+                    <TouchableOpacity
+                      key={String(cat.id)}
+                      style={[
+                        styles.catChip,
+                        { backgroundColor: colors.surface, borderColor: colors.border },
+                        isActive && { backgroundColor: colors.primary, borderColor: colors.primary },
+                      ]}
+                      onPress={() => { setCategory(cat.name); setCategoryId(String(cat.id)); setCategoryColor(cat.color ?? null); }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[
+                        styles.catLabel,
+                        { color: colors.gray600 },
+                        isActive && { color: '#fff' },
+                      ]}>
+                        {cat.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </>
+          )}
 
-          {/* Stock */}
+          {/* Fournisseur */}
+          {suppliers.length > 0 && (
+            <>
+              <Text style={[styles.sectionTitle, { color: colors.gray400 }]}>Fournisseur</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow}>
+                {/* Chip "Aucun" */}
+                <TouchableOpacity
+                  style={[styles.catChip, { backgroundColor: colors.surface, borderColor: colors.border }, !supplierId && { backgroundColor: colors.gray200, borderColor: colors.gray200 }]}
+                  onPress={() => { setSupplierId(null); setSupplierName(''); }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.catLabel, { color: colors.gray600 }, !supplierId && { color: colors.gray800 }]}>Aucun</Text>
+                </TouchableOpacity>
+                {suppliers.map(s => {
+                  const isActive = supplierId === String(s.id);
+                  return (
+                    <TouchableOpacity
+                      key={String(s.id)}
+                      style={[styles.catChip, { backgroundColor: colors.surface, borderColor: colors.border }, isActive && { backgroundColor: colors.primary, borderColor: colors.primary }]}
+                      onPress={() => { setSupplierId(String(s.id)); setSupplierName(s.name); }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.catLabel, { color: colors.gray600 }, isActive && { color: '#fff' }]}>
+                        {s.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </>
+          )}
+
+          {/* Emplacements */}
+          {availableLocations.length > 0 && (
+            <>
+              <Text style={[styles.sectionTitle, { color: colors.gray400 }]}>Emplacements</Text>
+              <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                {availableLocations.map((loc, idx) => {
+                  const locId   = String(loc.id);
+                  const sel     = selectedLocs[locId];
+                  const isActive = !!sel;
+                  return (
+                    <React.Fragment key={locId}>
+                      {idx > 0 && <View style={[styles.sep, { backgroundColor: colors.border }]} />}
+                      <View style={styles.locRow}>
+                        {/* Zone cliquable : checkbox + nom/zone uniquement */}
+                        <TouchableOpacity
+                          style={styles.locToggle}
+                          onPress={() => toggleLocation(locId)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={[
+                            styles.locCheck,
+                            { borderColor: colors.border, backgroundColor: colors.gray50 },
+                            isActive && { backgroundColor: colors.primary, borderColor: colors.primary },
+                          ]}>
+                            {isActive && <Ionicons name="checkmark" size={13} color="#fff" />}
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.locName, { color: colors.black }]}>{loc.name}</Text>
+                            {loc.zone && <Text style={[styles.locZone, { color: colors.gray400 }]}>{loc.zone}</Text>}
+                          </View>
+                        </TouchableOpacity>
+                        {/* Input quantité en dehors du TouchableOpacity */}
+                        {isActive && (
+                          <TextInput
+                            style={[styles.locQtyInput, { color: colors.black, borderColor: colors.primary, backgroundColor: colors.primaryBg }]}
+                            value={String(sel.quantity)}
+                            onChangeText={v => setLocQty(locId, parseInt(v) || 0)}
+                            keyboardType="numeric"
+                          />
+                        )}
+                      </View>
+                    </React.Fragment>
+                  );
+                })}
+              </View>
+            </>
+          )}
+
+          {/* Stock — quantité minimale */}
           <Text style={[styles.sectionTitle, { color: colors.gray400 }]}>Stock</Text>
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.row2}>
-              <View style={{ flex: 1 }}>
-                <Field label="Quantité actuelle" required>
-                  <StyledInput value={quantity} onChangeText={setQuantity} keyboardType="numeric" placeholder="0" />
-                </Field>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Field label="Quantité minimale" hint="Seuil d'alerte">
-                  <StyledInput value={minQuantity} onChangeText={setMinQuantity} keyboardType="numeric" placeholder="5" />
-                </Field>
-              </View>
-            </View>
+            <Field label="Quantité minimale" hint="Seuil d'alerte stock faible">
+              <StyledInput value={minQuantity} onChangeText={setMinQuantity} keyboardType="numeric" placeholder="5" />
+            </Field>
           </View>
 
-          {/* Finances & logistique */}
-          <Text style={[styles.sectionTitle, { color: colors.gray400 }]}>Finances & logistique</Text>
+          {/* Finances */}
+          <Text style={[styles.sectionTitle, { color: colors.gray400 }]}>Finances</Text>
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Field label="Prix unitaire (€)">
+            <Field label="Prix unitaire ($)">
               <StyledInput value={price} onChangeText={setPrice} keyboardType="decimal-pad" placeholder="0.00" />
-            </Field>
-            <View style={[styles.sep, { backgroundColor: colors.border }]} />
-            <Field label="Emplacement">
-              <StyledInput value={location} onChangeText={setLocation} placeholder="Ex: Étagère A-01" />
-            </Field>
-            <View style={[styles.sep, { backgroundColor: colors.border }]} />
-            <Field label="Fournisseur">
-              <StyledInput value={supplier} onChangeText={setSupplier} placeholder="Ex: Apple France" />
             </Field>
           </View>
 
@@ -367,26 +517,21 @@ const styles = StyleSheet.create({
 
   scroll: { padding: Spacing.md, gap: Spacing.sm },
 
-  // Emoji
-  emojiSection: { alignItems: 'center', paddingVertical: Spacing.md, gap: Spacing.sm },
-  emojiPicker: {
-    width: 90, height: 90, borderRadius: Radius.xl,
+  // Image
+  imageSection: { alignItems: 'center', paddingVertical: Spacing.md, gap: Spacing.sm },
+  imagePicker: {
+    width: 100, height: 100, borderRadius: Radius.xl,
     alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderStyle: 'dashed',
+    borderWidth: 2, borderStyle: 'dashed', overflow: 'hidden',
   },
-  emojiDisplay: { fontSize: 46 },
-  emojiEditBadge: {
+  imagePreview: { width: 100, height: 100 },
+  imageEditBadge: {
     position: 'absolute', bottom: 4, right: 4,
     width: 22, height: 22, borderRadius: Radius.full,
     alignItems: 'center', justifyContent: 'center',
   },
-  emojiHint: { ...Typography.caption },
-  emojiGrid: {
-    flexDirection: 'row', flexWrap: 'wrap',
-    borderRadius: Radius.lg, borderWidth: 1, padding: Spacing.sm, gap: 4, ...Shadow.sm,
-  },
-  emojiCell: { width: 44, height: 44, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center' },
-  emojiCellText: { fontSize: 24 },
+  imageHint: { ...Typography.caption },
+  imageRemove: { ...Typography.caption, fontWeight: '600' },
 
   sectionTitle: {
     ...Typography.label, textTransform: 'uppercase', letterSpacing: 1,
@@ -413,6 +558,12 @@ const styles = StyleSheet.create({
 
   row2: { flexDirection: 'row', gap: 0 },
 
+  skuBox: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    borderWidth: 1, borderRadius: Radius.md, paddingHorizontal: 12, paddingVertical: 10,
+  },
+  skuText: { ...Typography.bodySmall, fontFamily: 'monospace' as any, flex: 1 },
+
   scanField: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
     borderWidth: 1.5, borderRadius: Radius.md, paddingHorizontal: 12, paddingVertical: 11,
@@ -425,4 +576,24 @@ const styles = StyleSheet.create({
     borderRadius: Radius.lg, borderWidth: 1, borderColor: '#FECACA',
   },
   deleteBtnText: { ...Typography.body, fontWeight: '700' },
+
+  locRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: Spacing.md, paddingVertical: 12,
+    gap: Spacing.md,
+  },
+  locToggle: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+    flex: 1,
+  },
+  locCheck: {
+    width: 22, height: 22, borderRadius: 6, borderWidth: 1.5,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  locName: { ...Typography.body, fontWeight: '600' },
+  locZone: { ...Typography.caption, marginTop: 1 },
+  locQtyInput: {
+    width: 64, textAlign: 'center', borderWidth: 1.5, borderRadius: Radius.md,
+    paddingHorizontal: 8, paddingVertical: 6, fontSize: 14, fontWeight: '700',
+  },
 });

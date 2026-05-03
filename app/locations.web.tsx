@@ -1,33 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Pressable,
-  TextInput, ScrollView, Modal,
+  TextInput, ScrollView, Modal, ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, Spacing, Radius, Shadow, Typography } from '@/constants/theme';
 import { useAuth } from '@/store/auth';
+import {
+  fetchLocations,
+  createLocationDirectus,
+  updateLocationDirectus,
+  deleteLocationDirectus,
+  DirectusLocationRef,
+} from '@/lib/directusClient';
 
-// ─── Types & Data ─────────────────────────────────────────────────────────────
-
-interface Location {
-  id: string;
-  name: string;
-  zone: string;
-  description: string;
-  itemCount: number;
-  emoji: string;
-}
-
-const INITIAL_LOCATIONS: Location[] = [
-  { id: '1', name: 'Étagère A',   zone: 'Zone principale', description: 'Étagères A-01 à A-05', itemCount: 3, emoji: '🗄️' },
-  { id: '2', name: 'Étagère C-D', zone: 'Zone secondaire', description: 'Étagères C-05, D-02',  itemCount: 2, emoji: '📦' },
-  { id: '3', name: 'Entrepôt B',  zone: 'Stockage lourd',  description: 'Baies B-08 à B-12',    itemCount: 2, emoji: '🏭' },
-  { id: '4', name: 'Réserve F',   zone: 'Produits frais',  description: 'Zone réfrigérée F-01', itemCount: 1, emoji: '❄️' },
-];
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const ZONES  = ['Zone principale', 'Zone secondaire', 'Stockage lourd', 'Produits frais', 'Autre'];
-const EMOJIS = ['🗄️','📦','🏭','❄️','🏪','🚪','🧺','📫','🪣','🛒','🏬','🗃️'];
 
 type ZoneColor = { bg: string; text: string };
 
@@ -98,18 +88,31 @@ export default function WebLocationsScreen() {
   const colors   = useColors();
   const { isAdmin } = useAuth();
 
-  const [locations, setLocations] = useState<Location[]>(INITIAL_LOCATIONS);
+  const [locations, setLocations] = useState<DirectusLocationRef[]>([]);
+  const [loading,   setLoading]   = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [selected,  setSelected]  = useState<Location | null>(null);
+  const [selected,  setSelected]  = useState<DirectusLocationRef | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   const [name,        setName]        = useState('');
   const [description, setDescription] = useState('');
   const [zone,        setZone]        = useState(ZONES[0]);
-  const [emoji,       setEmoji]       = useState('📦');
 
-  const isEdit      = selected !== null;
-  const totalItems  = locations.reduce((s, l) => s + l.itemCount, 0);
+  const isEdit = selected !== null;
+
+  const loadLocations = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await fetchLocations();
+      setLocations(data);
+    } catch (err: any) {
+      globalThis.alert?.(`Erreur : ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadLocations(); }, [loadLocations]);
 
   // Auto-open form when navigating from sidebar with ?add=1
   useEffect(() => {
@@ -118,42 +121,51 @@ export default function WebLocationsScreen() {
 
   const openAdd = () => {
     setSelected(null);
-    setName(''); setDescription(''); setZone(ZONES[0]); setEmoji('📦');
+    setName(''); setDescription(''); setZone(ZONES[0]);
     setShowModal(true);
   };
 
-  const openEdit = (location: Location) => {
+  const openEdit = (location: DirectusLocationRef) => {
     setSelected(location);
     setName(location.name);
-    setDescription(location.description);
-    setZone(location.zone);
-    setEmoji(location.emoji);
+    setDescription(location.description ?? '');
+    setZone(location.zone ?? ZONES[0]);
     setShowModal(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!name.trim()) return;
-    if (isEdit) {
-      setLocations(prev => prev.map(l =>
-        l.id === selected.id
-          ? { ...l, name: name.trim(), description: description.trim(), zone, emoji }
-          : l
-      ));
-    } else {
-      setLocations(prev => [
-        { id: Date.now().toString(), name: name.trim(), description: description.trim(), zone, emoji, itemCount: 0 },
-        ...prev,
-      ]);
+    try {
+      const payload = {
+        name:        name.trim(),
+        zone,
+        description: description.trim(),
+      };
+      if (isEdit) {
+        await updateLocationDirectus(String(selected.id), payload);
+      } else {
+        await createLocationDirectus(payload);
+      }
+      setShowModal(false);
+      await loadLocations();
+    } catch (err: any) {
+      globalThis.alert?.(`Erreur : ${err.message}`);
     }
-    setShowModal(false);
   };
 
-  const handleDelete = (location: Location) => {
+  const handleDelete = async (location: DirectusLocationRef) => {
     if (globalThis.confirm?.(`Supprimer l'emplacement "${location.name}" ?`)) {
-      setLocations(prev => prev.filter(l => l.id !== location.id));
-      setShowModal(false);
+      try {
+        await deleteLocationDirectus(String(location.id));
+        setShowModal(false);
+        await loadLocations();
+      } catch (err: any) {
+        globalThis.alert?.(`Erreur : ${err.message}`);
+      }
     }
   };
+
+  const activeZones = ZONES.filter(z => locations.some(l => l.zone === z)).length;
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -163,7 +175,7 @@ export default function WebLocationsScreen() {
         <View>
           <Text style={[styles.pageTitle, { color: colors.black }]}>Emplacements</Text>
           <Text style={[styles.pageSubtitle, { color: colors.gray400 }]}>
-            {locations.length} emplacement{locations.length > 1 ? 's' : ''} · {totalItems} articles placés
+            {locations.length} emplacement{locations.length > 1 ? 's' : ''}
           </Text>
         </View>
         {isAdmin && (
@@ -182,117 +194,121 @@ export default function WebLocationsScreen() {
       <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
         <View style={styles.tableWrap}>
 
-          {/* Stat cards */}
-          <View style={styles.statsRow}>
-            <View style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Text style={[styles.statValue, { color: colors.black }]}>{locations.length}</Text>
-              <Text style={[styles.statLabel, { color: colors.gray400 }]}>Emplacements</Text>
+          {/* Loading */}
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#F97316" />
+              <Text style={[styles.loadingText, { color: colors.gray400 }]}>Chargement…</Text>
             </View>
-            <View style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Text style={[styles.statValue, { color: '#F97316' }]}>{totalItems}</Text>
-              <Text style={[styles.statLabel, { color: colors.gray400 }]}>Articles placés</Text>
-            </View>
-            <View style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Text style={[styles.statValue, { color: '#6366F1' }]}>{ZONES.filter(z => locations.some(l => l.zone === z)).length}</Text>
-              <Text style={[styles.statLabel, { color: colors.gray400 }]}>Zones actives</Text>
-            </View>
-          </View>
-
-          {/* Table header */}
-          <View style={[styles.tableHead, { backgroundColor: colors.gray50 }]}>
-            <View style={styles.colEmoji} />
-            <Text style={[styles.thCell, styles.colName,    { color: colors.gray400 }]}>Emplacement</Text>
-            <Text style={[styles.thCell, styles.colZone,    { color: colors.gray400 }]}>Zone</Text>
-            <Text style={[styles.thCell, styles.colDesc,    { color: colors.gray400 }]}>Description</Text>
-            <Text style={[styles.thCell, styles.colCount,   { color: colors.gray400 }]}>Articles</Text>
-            {isAdmin && <View style={styles.colActions} />}
-          </View>
-
-          {/* Rows */}
-          {locations.map(item => {
-            const zoneStyle = getZoneColor(item.zone);
-            const hovered   = hoveredId === item.id;
-            return (
-              <Pressable
-                key={item.id}
-                style={[
-                  styles.tableRow,
-                  { borderBottomColor: colors.border },
-                  hovered && { backgroundColor: 'rgba(249,115,22,0.05)' },
-                ]}
-                onHoverIn={() => setHoveredId(item.id)}
-                onHoverOut={() => setHoveredId(null)}
-                onPress={() => isAdmin && openEdit(item)}
-              >
-                {/* Emoji */}
-                <View style={styles.colEmoji}>
-                  <View style={[styles.emojiBox, { backgroundColor: colors.gray100 }]}>
-                    <Text style={styles.emojiText}>{item.emoji}</Text>
-                  </View>
+          ) : (
+            <>
+              {/* Stat cards */}
+              <View style={styles.statsRow}>
+                <View style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                  <Text style={[styles.statValue, { color: colors.black }]}>{locations.length}</Text>
+                  <Text style={[styles.statLabel, { color: colors.gray400 }]}>Emplacements</Text>
                 </View>
-
-                {/* Name */}
-                <View style={styles.colName}>
-                  <Text style={[styles.cellPrimary, { color: colors.black }]}>{item.name}</Text>
+                <View style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                  <Text style={[styles.statValue, { color: '#6366F1' }]}>{activeZones}</Text>
+                  <Text style={[styles.statLabel, { color: colors.gray400 }]}>Zones actives</Text>
                 </View>
+              </View>
 
-                {/* Zone */}
-                <View style={styles.colZone}>
-                  <View style={[styles.zoneBadge, { backgroundColor: zoneStyle.bg }]}>
-                    <Text style={[styles.zoneBadgeText, { color: zoneStyle.text }]}>{item.zone}</Text>
-                  </View>
-                </View>
+              {/* Table header */}
+              <View style={[styles.tableHead, { backgroundColor: colors.gray50 }]}>
+                <View style={styles.colEmoji} />
+                <Text style={[styles.thCell, styles.colName,    { color: colors.gray400 }]}>Emplacement</Text>
+                <Text style={[styles.thCell, styles.colZone,    { color: colors.gray400 }]}>Zone</Text>
+                <Text style={[styles.thCell, styles.colDesc,    { color: colors.gray400 }]}>Description</Text>
+                {isAdmin && <View style={styles.colActions} />}
+              </View>
 
-                {/* Description */}
-                <View style={styles.colDesc}>
-                  <Text style={[styles.cellSecondary, { color: colors.gray600 }]}>
-                    {item.description || '—'}
+              {/* Rows */}
+              {locations.map(item => {
+                const zoneStyle = getZoneColor(item.zone ?? '');
+                const hovered   = hoveredId === String(item.id);
+                return (
+                  <Pressable
+                    key={String(item.id)}
+                    style={[
+                      styles.tableRow,
+                      { borderBottomColor: colors.border },
+                      hovered && { backgroundColor: 'rgba(249,115,22,0.05)' },
+                    ]}
+                    onHoverIn={() => setHoveredId(String(item.id))}
+                    onHoverOut={() => setHoveredId(null)}
+                    onPress={() => isAdmin && openEdit(item)}
+                  >
+                    {/* Icon */}
+                    <View style={styles.colEmoji}>
+                      <View style={[styles.emojiBox, { backgroundColor: colors.gray100 }]}>
+                        <Ionicons name="location-outline" size={22} color={colors.gray600} />
+                      </View>
+                    </View>
+
+                    {/* Name */}
+                    <View style={styles.colName}>
+                      <Text style={[styles.cellPrimary, { color: colors.black }]}>{item.name}</Text>
+                    </View>
+
+                    {/* Zone */}
+                    <View style={styles.colZone}>
+                      {item.zone ? (
+                        <View style={[styles.zoneBadge, { backgroundColor: zoneStyle.bg }]}>
+                          <Text style={[styles.zoneBadgeText, { color: zoneStyle.text }]}>{item.zone}</Text>
+                        </View>
+                      ) : (
+                        <Text style={[styles.cellSecondary, { color: colors.gray400 }]}>—</Text>
+                      )}
+                    </View>
+
+                    {/* Description */}
+                    <View style={styles.colDesc}>
+                      <Text style={[styles.cellSecondary, { color: colors.gray600 }]}>
+                        {item.description || '—'}
+                      </Text>
+                    </View>
+
+                    {/* Actions */}
+                    {isAdmin && (
+                      <View style={[styles.colActions, styles.actionsRow]}>
+                        <Pressable
+                          style={({ hovered: h }: any) => [
+                            styles.actionBtn,
+                            { backgroundColor: colors.gray100 },
+                            h && { backgroundColor: '#FFF7ED' },
+                          ]}
+                          onPress={e => { (e as any).stopPropagation?.(); openEdit(item); }}
+                        >
+                          <Ionicons name="pencil-outline" size={15} color="#F97316" />
+                        </Pressable>
+                        <Pressable
+                          style={({ hovered: h }: any) => [
+                            styles.actionBtn,
+                            { backgroundColor: colors.gray100 },
+                            h && { backgroundColor: colors.dangerLight },
+                          ]}
+                          onPress={e => { (e as any).stopPropagation?.(); handleDelete(item); }}
+                        >
+                          <Ionicons name="trash-outline" size={15} color={colors.danger} />
+                        </Pressable>
+                      </View>
+                    )}
+                  </Pressable>
+                );
+              })}
+
+              {/* Empty state */}
+              {locations.length === 0 && (
+                <View style={[styles.emptyState, { borderColor: colors.border }]}>
+                  <Ionicons name="location-outline" size={40} color={colors.gray400} />
+                  <Text style={[styles.emptyTitle, { color: colors.black }]}>Aucun emplacement</Text>
+                  <Text style={[styles.emptyText, { color: colors.gray400 }]}>
+                    Ajoutez votre premier emplacement.
                   </Text>
                 </View>
-
-                {/* Articles count */}
-                <View style={[styles.colCount, { alignItems: 'center' }]}>
-                  <Text style={[styles.countText, { color: colors.black }]}>{item.itemCount}</Text>
-                </View>
-
-                {/* Actions */}
-                {isAdmin && (
-                  <View style={[styles.colActions, styles.actionsRow]}>
-                    <Pressable
-                      style={({ hovered: h }: any) => [
-                        styles.actionBtn,
-                        { backgroundColor: colors.gray100 },
-                        h && { backgroundColor: '#FFF7ED' },
-                      ]}
-                      onPress={e => { (e as any).stopPropagation?.(); openEdit(item); }}
-                    >
-                      <Ionicons name="pencil-outline" size={15} color="#F97316" />
-                    </Pressable>
-                    <Pressable
-                      style={({ hovered: h }: any) => [
-                        styles.actionBtn,
-                        { backgroundColor: colors.gray100 },
-                        h && { backgroundColor: colors.dangerLight },
-                      ]}
-                      onPress={e => { (e as any).stopPropagation?.(); handleDelete(item); }}
-                    >
-                      <Ionicons name="trash-outline" size={15} color={colors.danger} />
-                    </Pressable>
-                  </View>
-                )}
-              </Pressable>
-            );
-          })}
-
-          {/* Empty state */}
-          {locations.length === 0 && (
-            <View style={[styles.emptyState, { borderColor: colors.border }]}>
-              <Ionicons name="location-outline" size={40} color={colors.gray400} />
-              <Text style={[styles.emptyTitle, { color: colors.black }]}>Aucun emplacement</Text>
-              <Text style={[styles.emptyText, { color: colors.gray400 }]}>
-                Ajoutez votre premier emplacement.
-              </Text>
-            </View>
+              )}
+            </>
           )}
         </View>
       </ScrollView>
@@ -329,26 +345,6 @@ export default function WebLocationsScreen() {
                 >
                   <Ionicons name="close" size={18} color={colors.gray600} />
                 </Pressable>
-              </View>
-
-              {/* Emoji picker */}
-              <View style={styles.fieldGroup}>
-                <Text style={[styles.groupLabel, { color: colors.gray600 }]}>Icône</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.emojiRow}>
-                  {EMOJIS.map(e => (
-                    <Pressable
-                      key={e}
-                      style={[
-                        styles.emojiCell,
-                        { backgroundColor: colors.gray100 },
-                        emoji === e && { backgroundColor: '#FFF7ED', borderWidth: 2, borderColor: '#F97316' },
-                      ]}
-                      onPress={() => setEmoji(e)}
-                    >
-                      <Text style={styles.emojiCellText}>{e}</Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
               </View>
 
               {/* Fields */}
@@ -439,6 +435,9 @@ const styles = StyleSheet.create({
   },
   addBtnText: { ...Typography.bodySmall, color: '#fff', fontWeight: '700' },
 
+  loadingContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: Spacing.sm },
+  loadingText: { ...Typography.body },
+
   // Stats
   tableWrap: { padding: Spacing.xl, gap: Spacing.lg },
   statsRow: { flexDirection: 'row', gap: Spacing.md },
@@ -468,19 +467,15 @@ const styles = StyleSheet.create({
   colName:    { flex: 1.2, paddingRight: Spacing.md },
   colZone:    { flex: 1.5, paddingRight: Spacing.md },
   colDesc:    { flex: 2,   paddingRight: Spacing.md },
-  colCount:   { width: 80 },
   colActions: { width: 80 },
 
   emojiBox:  { width: 38, height: 38, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
-  emojiText: { fontSize: 22 },
 
   cellPrimary:   { ...Typography.body, fontWeight: '600' },
   cellSecondary: { ...Typography.bodySmall },
 
   zoneBadge:     { alignSelf: 'flex-start', borderRadius: Radius.full, paddingHorizontal: 10, paddingVertical: 3 },
   zoneBadgeText: { ...Typography.caption, fontWeight: '600' },
-
-  countText: { fontSize: 18, fontWeight: '800' },
 
   actionsRow: { flexDirection: 'row', gap: 6, justifyContent: 'flex-end' },
   actionBtn: {
@@ -525,9 +520,6 @@ const styles = StyleSheet.create({
 
   fieldGroup: { gap: 8, marginBottom: Spacing.md },
   groupLabel: { ...Typography.bodySmall, fontWeight: '600' },
-  emojiRow:   { gap: Spacing.sm, paddingVertical: 4 },
-  emojiCell:  { width: 44, height: 44, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
-  emojiCellText: { fontSize: 22 },
 
   fields: { gap: Spacing.md, marginBottom: Spacing.md },
 

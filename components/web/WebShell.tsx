@@ -15,9 +15,10 @@ interface NavItemConfig {
 }
 
 const NAV_ITEMS: NavItemConfig[] = [
-  { label: 'Inventaire',   icon: 'cube-outline',     activeIcon: 'cube',     href: '/' },
-  { label: 'Fournisseurs', icon: 'business-outline', activeIcon: 'business', href: '/suppliers' },
-  { label: 'Emplacements', icon: 'location-outline', activeIcon: 'location', href: '/locations' },
+  { label: 'Inventaire',   icon: 'cube-outline',      activeIcon: 'cube',      href: '/' },
+  { label: 'Fournisseurs', icon: 'business-outline',  activeIcon: 'business',  href: '/suppliers' },
+  { label: 'Emplacements', icon: 'location-outline',  activeIcon: 'location',  href: '/locations' },
+  { label: 'Catégories',   icon: 'pricetags-outline', activeIcon: 'pricetags', href: '/categories' },
 ];
 
 // ─── NavItem ─────────────────────────────────────────────────────────────────
@@ -118,6 +119,16 @@ export default function WebShell({ children }: { children: React.ReactNode }) {
               >
                 <Ionicons name="location-outline" size={19} color="#F97316" />
                 <Text style={[styles.navLabel, { color: '#F97316' }]}>Nouvel emplacement</Text>
+              </Pressable>
+              <Pressable
+                style={({ hovered }: any) => [
+                  styles.navItem,
+                  hovered && { backgroundColor: colors.gray100 },
+                ]}
+                onPress={() => router.push('/categories?add=1' as any)}
+              >
+                <Ionicons name="pricetag-outline" size={19} color="#8B5CF6" />
+                <Text style={[styles.navLabel, { color: '#8B5CF6' }]}>Nouvelle catégorie</Text>
               </Pressable>
             </>
           )}

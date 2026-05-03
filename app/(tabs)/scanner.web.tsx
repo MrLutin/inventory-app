@@ -1,8 +1,10 @@
 import React, { useState, useRef } from 'react';
-import { View, Text, TextInput, StyleSheet, TouchableOpacity, Pressable } from 'react-native';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, Pressable, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { MOCK_ITEMS, getStockStatus } from '@/constants/data';
+import { getStockStatus } from '@/constants/data';
+import { getImageUrl } from '@/lib/directusClient';
+import { useInventory } from '@/store/inventory';
 import { useColors, Spacing, Radius, Typography, Shadow } from '@/constants/theme';
 import StockBadge from '@/components/StockBadge';
 import CategoryBadge from '@/components/CategoryBadge';
@@ -10,13 +12,14 @@ import CategoryBadge from '@/components/CategoryBadge';
 export default function WebScannerScreen() {
   const colors = useColors();
   const router = useRouter();
+  const { items } = useInventory();
   const inputRef = useRef<TextInput>(null);
 
   const [query,    setQuery]    = useState('');
   const [searched, setSearched] = useState(false);
 
   const foundItem = searched
-    ? MOCK_ITEMS.find(i =>
+    ? items.find(i =>
         i.barcode === query.trim() ||
         i.sku     === query.trim()
       )
@@ -93,7 +96,12 @@ export default function WebScannerScreen() {
           {searched && foundItem && (
             <View style={[styles.resultBox, { backgroundColor: colors.accentLight, borderColor: colors.accent }]}>
               <View style={styles.resultTop}>
-                <Text style={styles.resultEmoji}>{foundItem.imageEmoji}</Text>
+                <View style={styles.resultImageBox}>
+                  {getImageUrl(foundItem.image)
+                    ? <Image source={{ uri: getImageUrl(foundItem.image)! }} style={styles.resultImage} resizeMode="cover" />
+                    : <Ionicons name="image-outline" size={28} color="#999" />
+                  }
+                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.resultName, { color: colors.black }]}>{foundItem.name}</Text>
                   <Text style={[styles.resultSku, { color: colors.gray400 }]}>{foundItem.sku}</Text>
@@ -101,10 +109,10 @@ export default function WebScannerScreen() {
               </View>
               <View style={styles.resultBadges}>
                 <StockBadge status={getStockStatus(foundItem)} />
-                <CategoryBadge category={foundItem.category} />
+                <CategoryBadge category={foundItem.category} color={foundItem.categoryColor} />
               </View>
               <Text style={[styles.resultMeta, { color: colors.gray600 }]}>
-                📦 {foundItem.quantity} unités · 💶 {foundItem.price.toFixed(2)} € · 📍 {foundItem.location}
+                📦 {foundItem.quantity} unités · 🪙 {foundItem.price.toFixed(2)} $ · 📍 {foundItem.locations.map(l => l.name).join(', ') || '—'}
               </Text>
               <View style={styles.resultActions}>
                 <TouchableOpacity
@@ -202,7 +210,8 @@ const styles = StyleSheet.create({
     padding: Spacing.md, gap: Spacing.sm,
   },
   resultTop: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
-  resultEmoji: { fontSize: 34 },
+  resultImageBox: { width: 52, height: 52, borderRadius: 10, overflow: 'hidden', backgroundColor: '#f0f0f0', alignItems: 'center', justifyContent: 'center' },
+  resultImage: { width: 52, height: 52 },
   resultName:  { ...Typography.h4 },
   resultSku:   { ...Typography.bodySmall, marginTop: 2 },
   resultBadges: { flexDirection: 'row', gap: Spacing.sm },

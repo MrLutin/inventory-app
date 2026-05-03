@@ -1,11 +1,12 @@
 import React from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Pressable,
-  ScrollView,
+  ScrollView, Image,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { getStockStatus, CATEGORY_LABELS, STOCK_LABELS } from '@/constants/data';
+import { getImageUrl } from '@/lib/directusClient';
 import { useColors, Spacing, Radius, Shadow, Typography } from '@/constants/theme';
 import { useInventory } from '@/store/inventory';
 import { useAuth } from '@/store/auth';
@@ -216,7 +217,10 @@ export default function WebItemDetailScreen() {
               {/* Color band */}
               <View style={[styles.heroBand, { backgroundColor: stockBg }]}>
                 <View style={[styles.heroEmoji, { backgroundColor: colors.surface }]}>
-                  <Text style={styles.heroEmojiText}>{item.imageEmoji}</Text>
+                  {getImageUrl(item.image)
+                    ? <Image source={{ uri: getImageUrl(item.image)! }} style={styles.heroImage} resizeMode="cover" />
+                    : <Ionicons name="image-outline" size={36} color={colors.gray400} />
+                  }
                 </View>
               </View>
 
@@ -226,7 +230,7 @@ export default function WebItemDetailScreen() {
                     <Text style={[styles.heroName, { color: colors.black }]}>{item.name}</Text>
                     <View style={styles.heroBadges}>
                       <StockBadge status={status} />
-                      <CategoryBadge category={item.category} />
+                      <CategoryBadge category={item.category} color={item.categoryColor} />
                     </View>
                   </View>
                 </View>
@@ -262,33 +266,68 @@ export default function WebItemDetailScreen() {
             <Panel title="Identification" icon="pricetag-outline">
               <InfoRow icon="barcode-outline"       label="Code-barres"  value={item.barcode}                    mono />
               <InfoRow icon="layers-outline"        label="SKU"          value={item.sku}                        mono />
-              <InfoRow icon="grid-outline"          label="Catégorie"    value={CATEGORY_LABELS[item.category]}  last />
+              <InfoRow icon="grid-outline"          label="Catégorie"    value={CATEGORY_LABELS[item.category] ?? item.category}  last />
             </Panel>
 
             {/* Stock & logistique */}
             <Panel title="Stock & logistique" icon="cube-outline">
               <InfoRow
                 icon="cube-outline"
-                label="Quantité actuelle"
+                label="Quantité totale"
                 value={`${item.quantity} unités`}
                 accent={status !== 'in_stock' ? stockBarColor : undefined}
               />
-              <InfoRow icon="alert-circle-outline"  label="Quantité minimale" value={`${item.minQuantity} unités`} />
-              <InfoRow icon="location-outline"      label="Emplacement"        value={item.location} />
-              <InfoRow icon="business-outline"      label="Fournisseur"        value={item.supplier}          last />
+              <InfoRow icon="alert-circle-outline" label="Quantité minimale" value={`${item.minQuantity} unités`} />
+              <InfoRow icon="business-outline"     label="Fournisseur"       value={item.supplier?.name ?? '—'} last />
             </Panel>
 
-            {/* Finances */}
-            <Panel title="Finances" icon="cash-outline">
-              <InfoRow icon="pricetag-outline"  label="Prix unitaire"  value={`${item.price.toFixed(2)} €`} />
-              <InfoRow
-                icon="wallet-outline"
-                label="Valeur du stock"
-                value={`${stockValue.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`}
-                accent={colors.primary}
-                last
-              />
-            </Panel>
+            {/* Répartition par emplacement */}
+            {item.locations.length > 1 && (
+              <Panel title="Répartition par emplacement" icon="location-outline">
+                {item.locations.map((loc, idx) => {
+                  const qty = loc.quantity ?? 0;
+                  const locColor = qty === 0
+                    ? colors.danger
+                    : qty < item.minQuantity ? colors.warning : colors.success;
+                  const locBg = qty === 0
+                    ? colors.dangerLight
+                    : qty < item.minQuantity ? colors.warningLight : colors.successLight;
+                  return (
+                    <View
+                      key={loc.junctionId ?? loc.id}
+                      style={[
+                        styles.locRow,
+                        idx < item.locations.length - 1 && { borderBottomWidth: 1, borderBottomColor: '#0000000D' },
+                      ]}
+                    >
+                      <View style={[styles.locDot, { backgroundColor: locColor }]} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.locName, { color: colors.black }]}>{loc.name}</Text>
+                        {loc.zone ? <Text style={[styles.locZone, { color: colors.gray400 }]}>{loc.zone}</Text> : null}
+                      </View>
+                      <View style={[styles.locBadge, { backgroundColor: locBg }]}>
+                        <Text style={[styles.locQty, { color: locColor }]}>{qty}</Text>
+                        <Text style={[styles.locUnit, { color: locColor }]}> unités</Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </Panel>
+            )}
+
+            {/* Finances — admin seulement */}
+            {isAdmin && (
+              <Panel title="Finances" icon="cash-outline">
+                <InfoRow icon="pricetag-outline"  label="Prix unitaire"  value={`${item.price.toFixed(2)} $`} />
+                <InfoRow
+                  icon="wallet-outline"
+                  label="Valeur du stock"
+                  value={`${stockValue.toLocaleString('fr-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`}
+                  accent={colors.primary}
+                  last
+                />
+              </Panel>
+            )}
 
             {/* Metadata */}
             <Panel title="Informations" icon="information-circle-outline">
@@ -328,19 +367,23 @@ export default function WebItemDetailScreen() {
                 color={stockBarColor}
                 sub="unités"
               />
+              {isAdmin && (
+                <StatPill
+                  label="Prix unit."
+                  value={`${item.price.toFixed(2)} $`}
+                  color={colors.primary}
+                />
+              )}
+            </View>
+            {isAdmin && (
               <StatPill
-                label="Prix unit."
-                value={`${item.price.toFixed(2)} €`}
+                label="Valeur totale du stock"
+                value={stockValue >= 1000
+                  ? `${(stockValue / 1000).toFixed(2)} k$`
+                  : `${stockValue.toFixed(2)} $`}
                 color={colors.primary}
               />
-            </View>
-            <StatPill
-              label="Valeur totale du stock"
-              value={stockValue >= 1000
-                ? `${(stockValue / 1000).toFixed(2)} k€`
-                : `${stockValue.toFixed(2)} €`}
-              color={colors.primary}
-            />
+            )}
 
             {/* Quick info */}
             <View style={[styles.quickInfo, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -350,11 +393,11 @@ export default function WebItemDetailScreen() {
               </View>
               <View style={[styles.quickRow, { borderBottomColor: colors.border }]}>
                 <Text style={[styles.quickLabel, { color: colors.gray400 }]}>Emplacement</Text>
-                <Text style={[styles.quickValue, { color: colors.black }]}>{item.location}</Text>
+                <Text style={[styles.quickValue, { color: colors.black }]}>{item.locations.map(l => l.name).join(', ') || '—'}</Text>
               </View>
               <View style={styles.quickRow}>
                 <Text style={[styles.quickLabel, { color: colors.gray400 }]}>Fournisseur</Text>
-                <Text style={[styles.quickValue, { color: colors.black }]}>{item.supplier}</Text>
+                <Text style={[styles.quickValue, { color: colors.black }]}>{item.supplier?.name ?? '—'}</Text>
               </View>
             </View>
 
@@ -423,10 +466,10 @@ const styles = StyleSheet.create({
   heroEmoji: {
     width: 76, height: 76, borderRadius: Radius.xl,
     alignItems: 'center', justifyContent: 'center',
-    marginBottom: -28,
+    marginBottom: -28, overflow: 'hidden',
     ...Shadow.md,
   },
-  heroEmojiText: { fontSize: 38 },
+  heroImage: { width: 76, height: 76 },
   heroContent:   { paddingHorizontal: Spacing.xl, paddingTop: 40, paddingBottom: Spacing.xl, gap: Spacing.md },
   heroTop:       { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.md },
   heroName:      { fontSize: 22, fontWeight: '800', letterSpacing: -0.4 },
@@ -492,4 +535,13 @@ const styles = StyleSheet.create({
     borderRadius: Radius.lg, marginTop: Spacing.sm,
   },
   nfBtnText: { ...Typography.body, color: '#fff', fontWeight: '700' },
+
+  // Location breakdown
+  locRow:   { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
+  locDot:   { width: 8, height: 8, borderRadius: 4 },
+  locName:  { ...Typography.body, fontWeight: '600' },
+  locZone:  { ...Typography.caption, marginTop: 1 },
+  locBadge: { flexDirection: 'row', alignItems: 'baseline', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 99 },
+  locQty:   { fontSize: 15, fontWeight: '700' },
+  locUnit:  { fontSize: 11, fontWeight: '500' },
 });

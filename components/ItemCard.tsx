@@ -1,7 +1,9 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { InventoryItem, getStockStatus } from '@/constants/data';
+import { getImageUrl } from '@/lib/directusClient';
 import { useColors, Spacing, Radius, Shadow, Typography } from '@/constants/theme';
 import StockBadge from './StockBadge';
 import CategoryBadge from './CategoryBadge';
@@ -21,8 +23,11 @@ export default function ItemCard({ item }: Props) {
       onPress={() => router.push(`/item/${item.id}`)}
       activeOpacity={0.75}
     >
-      <View style={[styles.emojiBox, { backgroundColor: colors.gray100 }]}>
-        <Text style={styles.emoji}>{item.imageEmoji}</Text>
+      <View style={[styles.imageBox, { backgroundColor: colors.gray100 }]}>
+        {getImageUrl(item.image)
+          ? <Image source={{ uri: getImageUrl(item.image)! }} style={styles.image} resizeMode="cover" />
+          : <Ionicons name="image-outline" size={26} color={colors.gray400} />
+        }
       </View>
 
       <View style={styles.content}>
@@ -30,15 +35,11 @@ export default function ItemCard({ item }: Props) {
           <Text style={[styles.name, { color: colors.black }]} numberOfLines={1}>{item.name}</Text>
           <StockBadge status={status} size="sm" />
         </View>
-        <Text style={[styles.sku, { color: colors.gray400 }]}>SKU: {item.sku || '—'}</Text>
         <View style={styles.bottomRow}>
-          <CategoryBadge category={item.category} />
-          <View style={styles.rightMeta}>
-            <Text style={[styles.qty, { color: colors.gray600 }]}>
-              <Text style={[styles.qtyNum, { color: colors.black }]}>{item.quantity}</Text> unités
-            </Text>
-            <Text style={[styles.price, { color: colors.primary }]}>{item.price.toFixed(2)} €</Text>
-          </View>
+          {item.category && item.category !== 'other' && <CategoryBadge category={item.category} color={item.categoryColor} />}
+          <Text style={[styles.qty, { color: colors.gray600 }]}>
+            <Text style={[styles.qtyNum, { color: colors.black }]}>{item.quantity}</Text> unités
+          </Text>
         </View>
       </View>
 
@@ -59,19 +60,17 @@ const styles = StyleSheet.create({
     ...Shadow.sm,
     borderWidth: 1,
   },
-  emojiBox: {
+  imageBox: {
     width: 52, height: 52, borderRadius: Radius.md,
     alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden',
   },
-  emoji: { fontSize: 26 },
+  image: { width: 52, height: 52 },
   content: { flex: 1, gap: 5 },
   topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.sm },
   name: { ...Typography.h4, flex: 1 },
-  sku: { ...Typography.bodySmall },
   bottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
-  rightMeta: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   qty: { ...Typography.bodySmall },
   qtyNum: { fontWeight: '700' },
-  price: { ...Typography.bodySmall, fontWeight: '700' },
   arrow: { fontSize: 22, marginTop: -2 },
 });
